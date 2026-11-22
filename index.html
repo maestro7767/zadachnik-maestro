@@ -141,11 +141,1195 @@ input[type="date"],input[type="time"]{min-width:0;max-width:100%;-webkit-appeara
 .hero .mini{color:rgba(255,255,255,.85)}
 .hero .bar{background:rgba(255,255,255,.3)}
 .hero .bar i{background:#fff}
+
+/* Визуальный слой: анимации и оформление */
+@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.18)}100%{transform:scale(1)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.task .check{transition:background .25s,border-color .25s,transform .2s}
+.task.done .check{animation:pop .35s ease}
+.task .t{transition:color .3s,opacity .3s}
+.task.done .t{opacity:.55}
+button{transition:transform .12s ease,background .2s,color .2s,box-shadow .2s}
+button:active{transform:scale(.96)}
+.task{transition:transform .15s ease}
+.task:active{transform:scale(.985)}
+.head{background:radial-gradient(120% 100% at 0% 0%,color-mix(in srgb,var(--accent) 26%,transparent),transparent 65%);transition:background .5s ease}
+.empty{display:flex;flex-direction:column;align-items:center;gap:6px;animation:fadeIn .4s ease both}
+.empty::before{content:"\2726";font-size:26px;color:var(--accent)}
+.tl{position:relative;padding-left:22px}
+.tl::before{content:"";position:absolute;left:7px;top:14px;bottom:14px;width:2px;background:var(--line);border-radius:2px}
+.tl>.task{overflow:visible}
+.tl>.task::after{content:"";position:absolute;left:-19px;top:24px;width:10px;height:10px;border-radius:50%;background:var(--c,var(--accent));box-shadow:0 0 0 3px var(--bg)}
+.tl>.task.done::after{opacity:.4}
+.colors button.locked{opacity:.35;font-size:14px;display:flex;align-items:center;justify-content:center}
+@media (max-width:420px){.grid2{grid-template-columns:1fr}}
+.pomo-time{font-size:56px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.chips-row .chip-btn{flex:1 1 auto;text-align:center}
+.sub-tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 0;scrollbar-width:none}
+.sub-tabs::-webkit-scrollbar{display:none}
+.sub-tabs .chip-btn{flex:0 0 auto;white-space:nowrap;padding:10px 18px;font-size:15px}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
+const __M1 = (() => {
+
+                                                       
+                                                 
+                                                            
+                                                   
+
+/** Текущая версия формата сохранённых данных. Растёт при каждом изменении структуры. */
+const SCHEMA_VERSION = 1;
+
+                                                
+
+/** Настройки и профиль пользователя. Необязательные поля появились в более поздних версиях. */
+                          
+               
+              
+                     
+                 
+               
+                  
+               
+                    
+                  
+                                                                    
+                      
+                  
+                                             
+                     
+ 
+
+                        
+                
+                
+ 
+
+/** Данные одного аккаунта на устройстве. */
+                           
+               
+                
+                    
+                   
+                            
+                    
+ 
+
+/** Всё, что приложение хранит в localStorage. */
+                          
+                  
+                                                                                 
+                                
+                                 
+                         
+ 
+
+function emptyAppData()          {
+  return { version: SCHEMA_VERSION, users: {}, data: {}, session: null };
+}
+
+function emptyUserData()           {
+  return { notes: { study: "", sport: "" }, plans: [] };
+}
+
+const CATEGORIES                      = ["study", "sport", "life"];
+
+/** Проверяет, что значение похоже на план. Используется при загрузке, чтобы не сломать приложение испорченными данными. */
+function isPlan(value         )                {
+  if (typeof value !== "object" || value === null) return false;
+  const p = value                           ;
+  return (
+    typeof p.id === "string" &&
+    typeof p.text === "string" &&
+    typeof p.date === "string" &&
+    typeof p.time === "string" &&
+    typeof p.done === "boolean" &&
+    typeof p.cat === "string" &&
+    (CATEGORIES                     ).includes(p.cat)
+  );
+}
+
+return { SCHEMA_VERSION, emptyAppData, emptyUserData, isPlan };
+})();
+const __M2 = (() => {
+
+                                                                  
+                                                                         
+
+                          
+                      
+                        
+                                                                     
+                                  
+ 
+
+                             
+                      
+                             
+                                
+                                                         
+                         
+                        
+ 
+
+                         
+                      
+                                          
+                           
+                         
+                       
+                           
+ 
+
+                           
+                      
+                         
+                       
+ 
+
+                            
+                      
+                         
+                        
+                       
+                       
+ 
+
+/** Учебные данные аккаунта. Всё хранится на устройстве. */
+                            
+                                      
+                      
+                                                                
+                     
+                      
+                            
+                    
+                        
+                     
+ 
+
+function emptyStudy()            {
+  return {
+    institution: null,
+    secondYear: false,
+    attendance: 0,
+    subjects: [],
+    assessments: [],
+    lessons: [],
+    deadlines: [],
+    cards: [],
+  };
+}
+
+return { emptyStudy };
+})();
+const __M3 = (() => {
+const { SCHEMA_VERSION, emptyAppData, emptyUserData, isPlan } = __M1;
+const { emptyStudy } = __M2;
+
+
+/** Минимальный интерфейс хранилища. В браузере это localStorage, в тестах — объект в памяти. */
+                                
+                                      
+                                            
+ 
+
+/** Приводит данные любой версии к текущему формату и отбрасывает испорченные записи. */
+function migrate(raw         )          {
+  if (typeof raw !== "object" || raw === null) return emptyAppData();
+  const src = raw                           ;
+
+  const users                         = {};
+  if (typeof src.users === "object" && src.users !== null) {
+    for (const [login, hash] of Object.entries(src.users                           )) {
+      if (typeof hash === "string") users[login] = hash;
+    }
+  }
+
+  const data                           = {};
+  if (typeof src.data === "object" && src.data !== null) {
+    for (const [login, entry] of Object.entries(src.data                           )) {
+      data[login] = sanitizeUser(entry);
+    }
+  }
+
+  const session = typeof src.session === "string" && data[src.session] ? src.session : null;
+  return { version: SCHEMA_VERSION, users, data, session };
+}
+
+function isHabit(v         )             {
+  if (typeof v !== "object" || v === null) return false;
+  const h = v                           ;
+  return (
+    typeof h.id === "string" &&
+    typeof h.name === "string" &&
+    Array.isArray(h.doneDays) &&
+    h.doneDays.every((d) => typeof d === "string")
+  );
+}
+
+function isWorkout(v         )                    {
+  if (typeof v !== "object" || v === null) return false;
+  const w = v                           ;
+  return (
+    typeof w.id === "string" &&
+    typeof w.date === "string" &&
+    typeof w.exerciseId === "string" &&
+    Array.isArray(w.sets) &&
+    w.sets.every((s) => {
+      if (typeof s !== "object" || s === null) return false;
+      const set = s                           ;
+      return typeof set.weight === "number" && typeof set.reps === "number";
+    })
+  );
+}
+
+function sanitizeUser(entry         )           {
+  const fallback = emptyUserData();
+  if (typeof entry !== "object" || entry === null) return fallback;
+  const e = entry                           ;
+  const notes = typeof e.notes === "object" && e.notes !== null ? (e.notes                           ) : {};
+  const plans = Array.isArray(e.plans) ? e.plans.filter(isPlan) : [];
+  const habits = Array.isArray(e.habits) ? e.habits.filter(isHabit) : undefined;
+  const workouts = Array.isArray(e.workouts) ? e.workouts.filter(isWorkout) : undefined;
+  return {
+    notes: {
+      study: typeof notes.study === "string" ? notes.study : "",
+      sport: typeof notes.sport === "string" ? notes.sport : "",
+    },
+    plans,
+    ...(typeof e.profile === "object" && e.profile !== null ? { profile: e.profile                        } : {}),
+    ...(habits ? { habits } : {}),
+    ...(workouts ? { workouts } : {}),
+    ...(typeof e.study === "object" && e.study !== null ? { study: { ...emptyStudy(), ...(e.study          ) }              } : {}),
+  };
+}
+
+/** Читает данные из хранилища. Если данных нет или они испорчены, возвращает пустое состояние. */
+function loadAppData(store               , key        )          {
+  const text = store.getItem(key);
+  if (text === null) return emptyAppData();
+  try {
+    return migrate(JSON.parse(text));
+  } catch {
+    return emptyAppData();
+  }
+}
+
+/** Сохраняет данные. Возвращает false, если хранилище недоступно или переполнено. */
+function saveAppData(store               , key        , data         )          {
+  try {
+    store.setItem(key, JSON.stringify(data));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+return { migrate, sanitizeUser, loadAppData, saveAppData };
+})();
+const __M4 = (() => {
+
+/**
+ * Работа с датами в локальном часовом поясе.
+ * Все даты приложения — строки формата YYYY-MM-DD.
+ * Неделя начинается с понедельника.
+ */
+
+const pad = (n        )         => String(n).padStart(2, "0");
+
+/** Разбирает YYYY-MM-DD в локальную полночь. */
+function parseYmd(s        )       {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y          , (m          ) - 1, d          );
+}
+
+/** Форматирует Date в YYYY-MM-DD (локальное время). */
+function ymd(d      )         {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Сдвигает дату на n дней. */
+function addDays(s        , n        )         {
+  const d = parseYmd(s);
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+
+/** Индекс дня недели, где понедельник = 0, воскресенье = 6. */
+function mondayIndex(d      )         {
+  return (d.getDay() + 6) % 7;
+}
+
+/** Семь дат недели (Пн–Вс), в которую попадает anchor. */
+function weekOf(anchor        )           {
+  const monday = addDays(anchor, -mondayIndex(parseYmd(anchor)));
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+}
+
+/**
+ * Сетка месяца для календаря: null — пустая ячейка до первого дня,
+ * иначе дата. Первый столбец — понедельник.
+ */
+function monthGrid(year        , month0        )                       {
+  const first = new Date(year, month0, 1);
+  const offset = mondayIndex(first);
+  const daysIn = new Date(year, month0 + 1, 0).getDate();
+  const cells                       = Array.from({ length: offset }, () => null);
+  for (let d = 1; d <= daysIn; d++) {
+    cells.push(ymd(new Date(year, month0, d)));
+  }
+  return cells;
+}
+
+return { pad, parseYmd, ymd, addDays, mondayIndex, weekOf, monthGrid };
+})();
+const __M5 = (() => {
+const { pad, ymd } = __M4;
+
+/** Текущая дата и время в формате, который понимает сравнение: YYYY-MM-DD и HH:MM. */
+                           
+                         
+                      
+ 
+
+function nowParts(d      )           {
+  return { today: ymd(d), hm: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
+}
+
+                                 
+                                                                         
+                       
+                                                   
+                              
+ 
+
+/**
+ * Выбирает планы, для которых пора показать напоминание.
+ * Напоминание только для невыполненных планов с временем, наступившим сегодня,
+ * и только один раз на каждый план.
+ * Чистая функция: ничего не отправляет, сама решение об отправке принимает вызывающий код.
+ */
+function dueReminders(
+  plans                 ,
+  now          ,
+  notified                   ,
+)                 {
+  const due = plans
+    .filter(
+      (p) =>
+        !p.done &&
+        p.date === now.today &&
+        p.time !== "" &&
+        p.time <= now.hm &&
+        !notified.includes(p.id),
+    )
+    .sort((a, b) => a.time.localeCompare(b.time));
+  return {
+    due,
+    notified: [...notified, ...due.map((p) => p.id)],
+  };
+}
+
+return { nowParts, dueReminders };
+})();
+const __M6 = (() => {
+const { SCHEMA_VERSION } = __M1;
+const { sanitizeUser } = __M3;
+                                           
+
+
+/** Метка формата, по ней проверяем, что файл выгружен этим приложением. */
+const EXPORT_FORMAT = "maestro-export";
+
+/** Структура файла экспорта. Настройки профиля и аватарка не выгружаются. */
+                             
+                          
+                           
+                              
+                           
+                                                                                          
+ 
+
+                          
+                                                                                                          
+                                                   
+
+/** Собирает JSON-файл экспорта для одного аккаунта. */
+function buildExport(login        , user          , exportedAt        )         {
+  const payload             = {
+    format: EXPORT_FORMAT,
+    version: SCHEMA_VERSION,
+    exportedAt,
+    account: login,
+    data: { notes: user.notes, plans: user.plans },
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Объединяет данные из файла с локальными.
+ * Планы добавляются, если такого id ещё нет: дубликаты пропускаются, существующие не перезаписываются.
+ * Заметка берётся из файла, только если локальная пуста.
+ * Профиль не меняется.
+ */
+function mergeImport(text        , local          )                                           {
+  const fail = (error        )                                           => ({
+    result: { ok: false, error },
+    user: local,
+  });
+
+  let raw         ;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return fail("Файл не читается как JSON");
+  }
+  if (typeof raw !== "object" || raw === null) return fail("Это не файл экспорта задачника");
+  const file = raw                           ;
+  if (file.format !== EXPORT_FORMAT) return fail("Это не файл экспорта задачника");
+  if (typeof file.version !== "number" || file.version > SCHEMA_VERSION) {
+    return fail("Файл создан в более новой версии приложения");
+  }
+
+  const incoming = sanitizeUser(file.data);
+  const localIds = new Set(local.plans.map((p) => p.id));
+  const fresh = incoming.plans.filter((p) => !localIds.has(p.id));
+  const notes = {
+    study: local.notes.study || incoming.notes.study,
+    sport: local.notes.sport || incoming.notes.sport,
+  };
+  const notesFilled = notes.study !== local.notes.study || notes.sport !== local.notes.sport;
+
+  return {
+    result: {
+      ok: true,
+      added: fresh.length,
+      skipped: incoming.plans.length - fresh.length,
+      notesFilled,
+    },
+    user: { ...local, notes, plans: [...local.plans, ...fresh] },
+  };
+}
+
+return { EXPORT_FORMAT, buildExport, mergeImport };
+})();
+const __M7 = (() => {
+const { addDays } = __M4;
+
+/** Контекст проверки: день и все планы пользователя. */
+                             
+                       
+                                  
+ 
+
+                            
+                      
+                         
+                      
+                                               
+ 
+
+const dayPlans = (ctx            )         => ctx.plans.filter((p) => p.date === ctx.day);
+
+const CHALLENGES                       = [
+  { id: "two", title: "Выполни 2 плана", xp: 15, check: (c) => dayPlans(c).filter((p) => p.done).length >= 2 },
+  { id: "sport", title: "Выполни план в отделе «Спорт»", xp: 10, check: (c) => dayPlans(c).some((p) => p.done && p.cat === "sport") },
+  { id: "study", title: "Выполни план в отделе «Учёба»", xp: 10, check: (c) => dayPlans(c).some((p) => p.done && p.cat === "study") },
+  { id: "timed", title: "Выполни план с временем", xp: 10, check: (c) => dayPlans(c).some((p) => p.done && p.time !== "") },
+  { id: "tomorrow", title: "Запланируй план на завтра", xp: 10, check: (c) => c.plans.some((p) => p.date === addDays(c.day, 1)) },
+  { id: "all", title: "Закрой все планы дня", xp: 20, check: (c) => dayPlans(c).length > 0 && dayPlans(c).every((p) => p.done) },
+];
+
+/** Простой детерминированный хеш строки (для выбора испытаний по дате). */
+function hashDay(day        )         {
+  let h = 0;
+  for (const ch of day) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  return Math.abs(h);
+}
+
+/**
+ * Три испытания на день. Одинаковы для всех пользователей: зависят только от даты.
+ * Все три разные.
+ */
+function dailyChallenges(day        )              {
+  const pool = [...CHALLENGES];
+  let seed = hashDay(day);
+  const picked              = [];
+  for (let i = 0; i < 3 && pool.length > 0; i++) {
+    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+    const idx = seed % pool.length;
+    picked.push(pool.splice(idx, 1)[0]             );
+  }
+  return picked;
+}
+
+function evaluateChallenge(c           , day        , plans                 )          {
+  return c.check({ day, plans });
+}
+
+return { CHALLENGES, dailyChallenges, evaluateChallenge };
+})();
+const __M8 = (() => {
+
+                                             
+
+/** Опыт за выполненный план и бонус за план с указанным временем. */
+const XP_PER_PLAN = 10;
+const XP_TIMED_BONUS = 5;
+
+function xpForPlan(p      )         {
+  return XP_PER_PLAN + (p.time !== "" ? XP_TIMED_BONUS : 0);
+}
+
+/** Суммарный опыт, который нужен, чтобы достичь уровня (уровень 1 — с нуля). */
+function thresholdFor(level        )         {
+  return level <= 1 ? 0 : (50 * (level - 1) * level) / 2;
+}
+
+/** Текущий уровень по суммарному опыту. Пороги растут: 50, 150, 300, 500 и далее. */
+function levelFromXp(xp        )         {
+  let level = 1;
+  while (thresholdFor(level + 1) <= xp) level++;
+  return level;
+}
+
+                                
+                         
+                                                     
+                        
+                                                
+                           
+ 
+
+function progressToNext(xp        )                {
+  const level = levelFromXp(xp);
+  const start = thresholdFor(level);
+  const next = thresholdFor(level + 1);
+  return {
+    level,
+    left: next - xp,
+    percent: Math.round(((xp - start) / (next - start)) * 100),
+  };
+}
+
+return { XP_PER_PLAN, XP_TIMED_BONUS, xpForPlan, thresholdFor, levelFromXp, progressToNext };
+})();
+const __M9 = (() => {
+const { dailyChallenges, evaluateChallenge } = __M7;
+const { xpForPlan } = __M8;
+                                             
+
+
+/**
+ * Суммарный опыт: за выполненные планы и за выполненные испытания дней до today включительно.
+ * Всё считается из планов, поэтому отдельно хранить опыт не нужно.
+ */
+function totalXp(plans                 , today        )         {
+  let xp = plans
+    .filter((p) => p.done && p.date <= today)
+    .reduce((sum, p) => sum + xpForPlan(p), 0);
+  const days = new Set(plans.filter((p) => p.date <= today).map((p) => p.date));
+  for (const day of days) {
+    for (const c of dailyChallenges(day)) {
+      if (evaluateChallenge(c, day, plans)) xp += c.xp;
+    }
+  }
+  return xp;
+}
+
+return { totalXp };
+})();
+const __M10 = (() => {
+const { addDays, mondayIndex, parseYmd } = __M4;
+
+const STREAK_REWARDS                          = [
+  { days: 3, name: "Огонёк" },
+  { days: 7, name: "Неделя без пропусков" },
+  { days: 14, name: "Две недели" },
+  { days: 30, name: "Месяц" },
+];
+
+/** Награды, которые уже получены при данной серии. */
+function rewardsEarned(streak        )                 {
+  return STREAK_REWARDS.filter((r) => streak >= r.days);
+}
+
+/** Первый день недели (понедельник), в которую попадает day. */
+function weekKey(day        )         {
+  return addDays(day, -mondayIndex(parseYmd(day)));
+}
+
+/**
+ * Серия с заморозкой: один пропущенный день в неделю не обнуляет серию,
+ * если день перед пропуском выполнен. Пропуски подряд или второй пропуск в той же неделе
+ * обрывают серию. Заморозка не добавляет дни к счёту, она только сохраняет серию.
+ * Если сегодня ещё ничего не выполнено, отсчёт идёт от вчера.
+ */
+function streakWithFreeze(plans                 , today        )         {
+  const doneOn = (day        )          => plans.some((p) => p.date === day && p.done);
+  let day = doneOn(today) ? today : addDays(today, -1);
+  let n = 0;
+  const freezeUsedInWeek = new Set        ();
+  for (;;) {
+    if (doneOn(day)) {
+      n++;
+      day = addDays(day, -1);
+      continue;
+    }
+    const prev = addDays(day, -1);
+    const week = weekKey(day);
+    if (!freezeUsedInWeek.has(week) && doneOn(prev)) {
+      freezeUsedInWeek.add(week);
+      day = prev;
+      continue;
+    }
+    break;
+  }
+  return n;
+}
+
+return { STREAK_REWARDS, rewardsEarned, streakWithFreeze };
+})();
+const __M11 = (() => {
+const { addDays, mondayIndex, parseYmd } = __M4;
+
+/** Привычка. Отметки хранятся списком дат, на которые она выполнена. */
+                        
+                      
+                        
+                                       
+ 
+
+/** Добавляет или убирает отметку за день. Возвращает новый список, исходный не меняется. */
+function toggleDay(doneDays                   , day        )           {
+  return doneDays.includes(day)
+    ? doneDays.filter((d) => d !== day)
+    : [...doneDays, day].sort();
+}
+
+function weekKey(day        )         {
+  return addDays(day, -mondayIndex(parseYmd(day)));
+}
+
+/**
+ * Серия привычки с заморозкой: один пропуск в неделю не обнуляет серию,
+ * если день перед пропуском выполнен. Логика та же, что у серии планов.
+ * Если сегодня ещё не отмечено, отсчёт идёт от вчера.
+ */
+function habitStreak(doneDays                   , today        )         {
+  const done = new Set(doneDays);
+  let day = done.has(today) ? today : addDays(today, -1);
+  let n = 0;
+  const freezeUsed = new Set        ();
+  for (;;) {
+    if (done.has(day)) {
+      n++;
+      day = addDays(day, -1);
+      continue;
+    }
+    const prev = addDays(day, -1);
+    const week = weekKey(day);
+    if (!freezeUsed.has(week) && done.has(prev)) {
+      freezeUsed.add(week);
+      day = prev;
+      continue;
+    }
+    break;
+  }
+  return n;
+}
+
+/** Выполнено ли за сегодня. */
+function isDoneOn(doneDays                   , day        )          {
+  return doneDays.includes(day);
+}
+
+return { toggleDay, habitStreak, isDoneOn };
+})();
+const __M12 = (() => {
+
+                                         
+
+/**
+ * Стартовый набор привычек. Нейтральные, без целей по весу, питанию и телу.
+ * Пользователь может добавить свои или убрать эти.
+ */
+const STARTER_HABITS                                            = [
+  { id: "water", name: "Выпить стакан воды" },
+  { id: "reading", name: "Почитать 10 минут" },
+  { id: "walk", name: "Прогулка на свежем воздухе" },
+];
+
+/** Стартовые привычки с пустой историей отметок. */
+function starterHabits()          {
+  return STARTER_HABITS.map((h) => ({ id: h.id, name: h.name, doneDays: [] }));
+}
+
+return { STARTER_HABITS, starterHabits };
+})();
+const __M13 = (() => {
+
+/**
+ * Тренировки: упражнения с подходами, вес в килограммах и повторения.
+ * Веса тела и цели по весу не отслеживаются.
+ */
+
+                           
+                      
+                        
+ 
+
+                           
+                                                              
+                          
+                    
+                        
+ 
+
+                               
+                      
+                    
+                        
+                              
+                                     
+ 
+
+const MAX_WEIGHT_KG = 500;
+const MAX_REPS = 100;
+
+/** Стартовый список упражнений. Пользователь может добавлять свои. */
+const DEFAULT_EXERCISES                      = [
+  { id: "squat", name: "Приседания со штангой" },
+  { id: "deadlift", name: "Становая тяга" },
+  { id: "bench", name: "Жим лёжа" },
+  { id: "ohp", name: "Жим стоя" },
+  { id: "row", name: "Тяга штанги в наклоне" },
+  { id: "pullup", name: "Подтягивания" },
+  { id: "pushup", name: "Отжимания" },
+  { id: "lunge", name: "Выпады" },
+  { id: "plank", name: "Планка (секунды)" },
+  { id: "curl", name: "Сгибания на бицепс" },
+  { id: "press", name: "Жим гантелей" },
+  { id: "dip", name: "Отжимания на брусьях" },
+];
+
+/** Подход корректен: вес от 0 до лимита, повторения целые от 1 до лимита. */
+function isValidSet(s          )          {
+  return (
+    Number.isFinite(s.weight) &&
+    s.weight >= 0 &&
+    s.weight <= MAX_WEIGHT_KG &&
+    Number.isInteger(s.reps) &&
+    s.reps >= 1 &&
+    s.reps <= MAX_REPS
+  );
+}
+
+/** Объём подхода: вес × повторения. */
+function setVolume(s          )         {
+  return s.weight * s.reps;
+}
+
+/** Общий объём тренировки (сумма по подходам). */
+function workoutVolume(sets                     )         {
+  return sets.reduce((sum, s) => sum + setVolume(s), 0);
+}
+
+                                
+                        
+                             
+                          
+ 
+
+/**
+ * Прогресс по одному упражнению: по каждому дню максимальный вес и общий объём.
+ * Точки отсортированы по дате.
+ */
+function exerciseProgress(entries                         , exerciseId        )                  {
+  const byDay = new Map                                               ();
+  for (const e of entries) {
+    if (e.exerciseId !== exerciseId) continue;
+    const cur = byDay.get(e.date) ?? { maxWeight: 0, volume: 0 };
+    for (const s of e.sets) {
+      cur.maxWeight = Math.max(cur.maxWeight, s.weight);
+      cur.volume += setVolume(s);
+    }
+    byDay.set(e.date, cur);
+  }
+  return [...byDay.entries()]
+    .map(([date, v]) => ({ date, maxWeight: v.maxWeight, volume: v.volume }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+return { MAX_WEIGHT_KG, MAX_REPS, DEFAULT_EXERCISES, isValidSet, setVolume, workoutVolume, exerciseProgress };
+})();
+const __M14 = (() => {
+
+/**
+ * Таймер отдыха по меткам времени, а не по счётчику тиков.
+ * Так таймер остаётся верным, когда приложение свернуто или экран погас:
+ * оставшееся время считается от момента старта при каждом обращении.
+ */
+
+                            
+                               
+                               
+ 
+
+/** Сколько секунд осталось, округлено вверх, не меньше нуля. */
+function remainingSec(timer           , nowMs        )         {
+  const elapsed = (nowMs - timer.startedAtMs) / 1000;
+  return Math.max(0, Math.ceil(timer.durationSec - elapsed));
+}
+
+/** Отдых закончился. */
+function isFinished(timer           , nowMs        )          {
+  return remainingSec(timer, nowMs) === 0;
+}
+
+/** Формат мм:сс для экрана. */
+function formatTime(totalSec        )         {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/**
+ * Пропустить отдых: таймер завершается сразу в момент пропуска.
+ * Возвращает новый таймер, исходный не меняется.
+ */
+function skipRest(timer           , nowMs        )            {
+  const elapsedSec = Math.max(0, (nowMs - timer.startedAtMs) / 1000);
+  return { ...timer, durationSec: elapsedSec };
+}
+
+return { remainingSec, isFinished, formatTime, skipRest };
+})();
+const __M15 = (() => {
+const { parseYmd } = __M4;
+
+/** Номер дня недели по дате: понедельник — 1, воскресенье — 7. */
+function isoWeekday(day        )         {
+  const d = parseYmd(day).getDay();
+  return d === 0 ? 7 : d;
+}
+
+/** Занятия на дату, по времени начала. */
+function lessonsOn(lessons                   , day        )           {
+  const wd = isoWeekday(day);
+  return lessons.filter((l) => l.weekday === wd).sort((a, b) => a.start.localeCompare(b.start));
+}
+
+return { isoWeekday, lessonsOn };
+})();
+const __M16 = (() => {
+const { addDays } = __M4;
+
+/** Сколько дней до срока: 0 — сегодня, отрицательное — срок прошёл. */
+function daysLeft(due        , today        )         {
+  const [ty, tm, td] = today.split("-").map(Number);
+  const [dy, dm, dd] = due.split("-").map(Number);
+  const a = Date.UTC(ty          , (tm          ) - 1, td          );
+  const b = Date.UTC(dy          , (dm          ) - 1, dd          );
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** Дедлайны от сегодня до days дней вперёд, по сроку. */
+function upcomingDeadlines(deadlines                     , today        , days = 14)             {
+  const end = addDays(today, days);
+  return deadlines
+    .filter((d) => d.due >= today && d.due <= end)
+    .sort((a, b) => a.due.localeCompare(b.due));
+}
+
+return { daysLeft, upcomingDeadlines };
+})();
+const __M17 = (() => {
+
+/**
+ * Помодоро: 25 минут работы, 5 минут отдыха, после четвёртой работы — 15 минут.
+ * Состояние считается по времени от старта, поэтому не сбивается при свёрнутом приложении.
+ */
+
+                                                  
+
+const WORK_SEC = 25 * 60;
+const SHORT_SEC = 5 * 60;
+const LONG_SEC = 15 * 60;
+
+                            
+                            
+                                                 
+                         
+                                
+                                                   
+                               
+ 
+
+function phaseOf(index        )                                    {
+  if (index % 2 === 0) return { phase: "work", sec: WORK_SEC };
+  const workDone = (index + 1) / 2;
+  return workDone % 4 === 0 ? { phase: "long", sec: LONG_SEC } : { phase: "short", sec: SHORT_SEC };
+}
+
+/** Состояние через elapsedSec секунд после старта. */
+function pomodoroAt(elapsedSec        )            {
+  const e = Math.max(0, elapsedSec);
+  let t = 0;
+  let index = 0;
+  for (;;) {
+    const { phase, sec } = phaseOf(index);
+    if (e < t + sec) {
+      return { phase, index, remainingSec: Math.ceil(t + sec - e), phaseEndSec: t + sec };
+    }
+    t += sec;
+    index++;
+  }
+}
+
+/**
+ * Пропуск текущей фазы без штрафа: возвращает новое время старта,
+ * при котором следующая фаза начинается сейчас.
+ */
+function skipPomodoro(startMs        , nowMs        )         {
+  const elapsed = Math.floor((nowMs - startMs) / 1000);
+  const { phaseEndSec } = pomodoroAt(elapsed);
+  return nowMs - phaseEndSec * 1000;
+}
+
+return { WORK_SEC, SHORT_SEC, LONG_SEC, pomodoroAt, skipPomodoro };
+})();
+const __M18 = (() => {
+const { addDays } = __M4;
+
+/** Интервалы по коробкам: 1, 3, 7, 14 и 30 дней. */
+const BOX_INTERVALS_DAYS = [1, 3, 7, 14, 30]         ;
+
+/**
+ * Один шаг повторения.
+ * «Помню» — карточка переходит в следующую коробку, срок растёт.
+ * «Не помню» — возвращается в первую коробку, повтор завтра.
+ */
+function reviewCard(card           , remembered         , today        )            {
+  if (!remembered) {
+    return { ...card, box: 0, due: addDays(today, BOX_INTERVALS_DAYS[0]) };
+  }
+  const box = Math.min(BOX_INTERVALS_DAYS.length - 1, card.box + 1);
+  return { ...card, box, due: addDays(today, BOX_INTERVALS_DAYS[box]          ) };
+}
+
+/** Карточки, которые пора повторить сегодня (срок наступил). */
+function dueCards(cards                      , today        )              {
+  return cards.filter((c) => c.due <= today).sort((a, b) => a.due.localeCompare(b.due));
+}
+
+return { BOX_INTERVALS_DAYS, reviewCard, dueCards };
+})();
+const __M19 = (() => {
+
+/**
+ * Оценки по трём системам: школа (2–5, средневзвешенный балл),
+ * колледж (100 баллов + бонус посещаемости до 20, итого до 120),
+ * вуз (100-балльная БРС с порогом зачёта).
+ * Все правила — параметры, их можно поменять без переписывания логики.
+ */
+
+                                                              
+
+/** Округление как в журналах: .5 вверх. */
+function roundHalfUp(x        )         {
+  return Math.floor(x + 0.5);
+}
+
+/* ---------- Школа ---------- */
+
+                             
+                    
+                         
+                                                
+                          
+ 
+
+/** Средневзвешенный балл и итоговая оценка 2–5. null, если работ нет. */
+function schoolAverage(items                       )                                            {
+  if (items.length === 0) return null;
+  const weightSum = items.reduce((s, i) => s + i.weight, 0);
+  if (weightSum <= 0) return null;
+  const average = items.reduce((s, i) => s + i.value * i.weight, 0) / weightSum;
+  const grade = Math.min(5, Math.max(2, roundHalfUp(average)));
+  return { average: Math.round(average * 100) / 100, grade };
+}
+
+/* ---------- Колледж ---------- */
+
+/** Максимум баллов за чекпоинты и экзамены. */
+const COLLEGE_MAX_POINTS = 100;
+/** Максимум бонуса за посещаемость (второй курс). */
+const COLLEGE_ATTENDANCE_MAX = 20;
+/** Пороги: до 50 — неудовлетворительно, 50 — «3», 70 — «4», 90 — «5». */
+const COLLEGE_THRESHOLDS = { three: 50, four: 70, five: 90 }         ;
+
+/** Бонус за посещаемость: процент посещаемости от 20 баллов (90% → 18). */
+function attendanceBonus(percent        )         {
+  const p = Math.min(100, Math.max(0, percent));
+  return Math.round(p * COLLEGE_ATTENDANCE_MAX / 100);
+}
+
+                                
+                                           
+                          
+                                                                  
+                              
+                                
+                         
+                                                   
+                                   
+                           
+ 
+
+/**
+ * Вариант Б: бонус посещаемости входит в итог и влияет на оценку.
+ * Ошибка, если баллы за работы вне 0–100.
+ */
+function collegeResult(points        , attendancePercent        , secondYearOrAbove         )                                    {
+  if (!Number.isFinite(points) || points < 0 || points > COLLEGE_MAX_POINTS) {
+    return { error: "Баллы за работы должны быть от 0 до 100" };
+  }
+  const attendance = secondYearOrAbove ? attendanceBonus(attendancePercent) : 0;
+  const total = points + attendance;
+  const grade                   =
+    total >= COLLEGE_THRESHOLDS.five ? 5
+    : total >= COLLEGE_THRESHOLDS.four ? 4
+    : total >= COLLEGE_THRESHOLDS.three ? 3
+    : null;
+  return { points, attendance, total, grade, passed: grade !== null };
+}
+
+/** Шаги после незачёта: пересдача, затем комиссия, затем отчисление. */
+                                                                             
+
+/**
+ * Что дальше по числу неудачных попыток.
+ * 0 неудач или зачёт — ничего; 1 — пересдача; 2 — комиссия; 3 и больше — отчисление.
+ */
+function collegeNextStep(failedAttempts        , passed         )                  {
+  if (passed) return "none";
+  if (failedAttempts <= 0) return "retake";
+  if (failedAttempts === 1) return "commission";
+  return "expulsion";
+}
+
+/* ---------- Вуз ---------- */
+
+const UNIVERSITY_DEFAULT_PASS = 60;
+
+                                   
+                         
+                                                  
+                                
+                           
+ 
+
+/**
+ * 100-балльная БРС: 90 — «отлично», 70 — «хорошо», 60 — «удовлетворительно».
+ * Порог зачёта задаётся параметром.
+ */
+function universityResult(total        , passMark         = UNIVERSITY_DEFAULT_PASS)                                       {
+  if (!Number.isFinite(total) || total < 0 || total > 100) {
+    return { error: "Баллы должны быть от 0 до 100" };
+  }
+  const grade                = total >= 90 ? 5 : total >= 70 ? 4 : total >= 60 ? 3 : 2;
+  return { total, grade, passed: total >= passMark };
+}
+
+return { roundHalfUp, schoolAverage, COLLEGE_MAX_POINTS, COLLEGE_ATTENDANCE_MAX, COLLEGE_THRESHOLDS, attendanceBonus, collegeResult, collegeNextStep, UNIVERSITY_DEFAULT_PASS, universityResult };
+})();
+const __M20 = (() => {
+const { collegeNextStep, collegeResult, schoolAverage, universityResult } = __M19;
+
+/** Вес работы в школе: домашка ×1, контрольная и экзамен ×2, контрольная точка ×1. */
+function schoolWeight(kind                )         {
+  return kind === "homework" || kind === "checkpoint" ? 1 : 2;
+}
+
+                               
+                                                                             
+                                                                                    
+                                                     
+                                                      
+
+const NEXT_TEXT                                  = {
+  none: "зачтено",
+  retake: "нужна пересдача",
+  commission: "нужна комиссия",
+  expulsion: "риск отчисления: обратись к куратору",
+};
+
+/**
+ * Результат по предмету для выбранного типа учебного заведения.
+ * Тексты нейтральные: что дальше делать, без осуждения.
+ */
+function subjectResultView(
+  institution                        ,
+  items                       ,
+  attendancePercent        ,
+  secondYear         ,
+  failedAttempts        ,
+)                    {
+  if (items.length === 0) return { kind: "empty", text: "оценок пока нет" };
+
+  if (institution === "school") {
+    const r = schoolAverage(items.map((a) => ({ value: a.value, weight: schoolWeight(a.kind) })));
+    if (!r) return { kind: "empty", text: "оценок пока нет" };
+    return { kind: "grade", grade: r.grade, text: `${r.grade} (средний ${r.average})` };
+  }
+
+  if (institution === "college") {
+    const points = items.reduce((s, a) => s + a.value, 0);
+    const r = collegeResult(points, attendancePercent, secondYear);
+    if ("error" in r) return { kind: "error", text: r.error };
+    if (r.grade !== null) {
+      return { kind: "grade", grade: r.grade, text: `${r.grade} (${r.total} из 120)` };
+    }
+    const step = collegeNextStep(failedAttempts, false);
+    return { kind: "next", step, text: `${r.total} из 120, ${NEXT_TEXT[step]}` };
+  }
+
+  if (institution === "university") {
+    const points = Math.min(100, items.reduce((s, a) => s + a.value, 0));
+    const r = universityResult(points);
+    if ("error" in r) return { kind: "error", text: r.error };
+    return { kind: "grade", grade: r.grade, text: `${r.grade} (${r.total} из 100)` };
+  }
+
+  return { kind: "empty", text: "выбери учебное заведение" };
+}
+
+return { schoolWeight, subjectResultView };
+})();
+const { loadAppData, saveAppData } = __M3;
+const { dueReminders, nowParts } = __M5;
+const { buildExport, mergeImport } = __M6;
+const { totalXp } = __M9;
+const { dailyChallenges, evaluateChallenge } = __M7;
+const { levelFromXp, progressToNext } = __M8;
+const { rewardsEarned, streakWithFreeze } = __M10;
+const { toggleDay, habitStreak } = __M11;
+const { starterHabits } = __M12;
+const { DEFAULT_EXERCISES, isValidSet, exerciseProgress } = __M13;
+const { remainingSec, formatTime, skipRest } = __M14;
+const { emptyStudy } = __M2;
+const { lessonsOn } = __M15;
+const { daysLeft, upcomingDeadlines } = __M16;
+const { pomodoroAt, skipPomodoro } = __M17;
+const { reviewCard, dueCards } = __M18;
+const { subjectResultView, schoolWeight } = __M20;
+
+const ACCENT_LEVELS = [1, 2, 3, 4, 5, 6, 7];
 (function(){
 "use strict";
 
@@ -156,7 +1340,7 @@ const WD = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
 const MONTHS = ["Января","Февраля","Марта","Апреля","Мая","Июня","Июля","Августа","Сентября","Октября","Ноября","Декабря"];
 
 let db = { users: {}, data: {}, session: null };
-try { const raw = JSON.parse(localStorage.getItem(KEY)); if (raw && typeof raw === "object") db = Object.assign(db, raw); } catch (e) {}
+db = loadAppData(localStorage, KEY);
 
 const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "" };
 
@@ -166,7 +1350,7 @@ function todayStr(){ return ymd(new Date()); }
 function addDays(s, n){ const d = new Date(s + "T00:00"); d.setDate(d.getDate() + n); return ymd(d); }
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function save(){ try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
+function save(){ try { saveAppData(localStorage, KEY, db); } catch (e) {} }
 function me(){ return db.data[db.session]; }
 function prof(){
   const d = me();
@@ -264,23 +1448,23 @@ function dayList(day){
   const untimed = day.filter(p => !p.time);
   const timed = day.filter(p => p.time).sort((a, b) => a.time.localeCompare(b.time));
   const all = [...timed, ...untimed];
-  return all.length ? all.map(taskHTML).join("") : `<div class="empty">На этот день планов нет</div>`;
+  return all.length ? `<div class="tl">${all.map(taskHTML).join("")}</div>` : `<div class="empty">На этот день планов нет</div>`;
 }
 
 function statsBlock(){
   const all = me().plans, done = all.filter(p => p.done).length;
-  return `<div class="stats3"><div><b>${all.length}</b><small>Всего</small></div><div><b>${done}</b><small>Выполнено</small></div><div><b>${streak()}🔥</b><small>Серия дней</small></div></div>`;
+  return `<div class="stats3"><div><b>${all.length}</b><small>Всего</small></div><div><b>${done}</b><small>Выполнено</small></div><div><b>${streakWithFreeze(me().plans, todayStr())}🔥</b><small>Серия дней</small></div></div>`;
 }
 
 function weekChartHTML(){
   const WDS = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
-  const t0 = new Date(todayStr() + "T00:00");
-  const todayIdx = (t0.getDay() + 6) % 7;
-  const monday = addDays(todayStr(), -todayIdx);
+  const t0 = new Date(ui.anchor + "T00:00");
+  const selIdx = (t0.getDay() + 6) % 7;
+  const monday = addDays(ui.anchor, -selIdx);
   const counts = [];
   for (let i = 0; i < 7; i++) counts.push(me().plans.filter(x => x.date === addDays(monday, i) && x.done).length);
   const max = Math.max(1, ...counts);
-  const bars = counts.map((n, i) => `<div class="wcol ${i === todayIdx ? "now" : ""}"><div class="wbar"><i style="height:${Math.max(6, Math.round(n / max * 100))}%"></i></div><small>${WDS[i]}</small></div>`).join("");
+  const bars = counts.map((n, i) => `<div class="wcol ${i === selIdx ? "now" : ""}"><div class="wbar"><i style="height:${Math.max(6, Math.round(n / max * 100))}%"></i></div><small>${WDS[i]}</small></div>`).join("");
   return `<div class="label">Неделя</div><div class="card"><div class="wchart">${bars}</div></div>`;
 }
 
@@ -301,14 +1485,33 @@ function helloBtn(p){
 
 function stripHTML(){
   const WDS = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
-  const t0 = new Date(todayStr() + "T00:00");
-  const monday = addDays(todayStr(), -((t0.getDay() + 6) % 7));
+  const t0 = new Date(ui.anchor + "T00:00");
+  const monday = addDays(ui.anchor, -((t0.getDay() + 6) % 7));
   let h = "";
   for (let i = 0; i < 7; i++) {
     const s = addDays(monday, i), d = new Date(s + "T00:00");
     h += `<button class="day ${s === ui.anchor ? "on" : ""}" data-act="pickday" data-v="${s}"><small>${WDS[i]}</small><b>${d.getDate()}</b></button>`;
   }
   return `<div class="strip">${h}</div>`;
+}
+
+function gameHTML(p){
+  if (p.game === false) return "";
+  const plans = me().plans;
+  const today = todayStr();
+  const xp = totalXp(plans, today);
+  const pr = progressToNext(xp);
+  const challenges = dailyChallenges(today).map((c) => {
+    const ok = evaluateChallenge(c, today, plans);
+    return `<div class="setrow"><span>${ok ? "✓" : "○"} ${esc(c.title)}</span><span class="mini">+${c.xp} XP</span></div>`;
+  }).join("");
+  const rewards = rewardsEarned(streakWithFreeze(plans, today))
+    .map((r) => `<span class="chip">${esc(r.name)}</span>`).join("")
+    || `<span class="mini">Первая награда откроется за серию 3 дня</span>`;
+  return `<div class="label">Уровень ${pr.level}</div>
+    <div class="card"><div class="row"><div class="grow"><b>${xp} XP</b><div class="mini">До уровня ${pr.level + 1}: ${pr.left} XP</div></div><b style="color:var(--accent)">${pr.percent}%</b></div><div class="bar"><i style="width:${pr.percent}%"></i></div></div>
+    <div class="label">Испытания дня</div><div class="card">${challenges}</div>
+    <div class="label">Награды</div><div class="card"><div class="chips-row">${rewards}</div></div>`;
 }
 
 function todayView(){
@@ -322,6 +1525,7 @@ function todayView(){
   <div class="wrap">
     ${stripHTML()}
     ${p.showStats ? statsBlock() : ""}
+    ${gameHTML(p)}
     ${weekChartHTML()}
     ${phraseHTML()}
     <div class="card hero"><div class="row"><div class="grow"><b style="font-size:17px">${done} из ${day.length} выполнено</b><div class="mini">Рабочий день ${p.workStart}–${p.workEnd} · цель ${p.goal}</div></div>${ringHTML(pct)}</div></div>
@@ -380,6 +1584,8 @@ function avatarHTML(p, size){
   return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px">${inner}</div>`;
 }
 
+function accentLevel(){ return levelFromXp(totalXp(me().plans, todayStr())); }
+
 function profileView(){
   const p = prof();
   const names = Object.keys(db.users);
@@ -406,7 +1612,7 @@ function profileView(){
       <button class="btn" type="submit">Сохранить</button></form></div>` : ""}
     ${statsBlock()}
     <div class="label">Акцентный цвет</div>
-    <div class="card"><div class="colors">${ACCENTS.map(c => `<button style="--c:${c}" class="${p.accent === c ? "on" : ""}" data-act="accent" data-v="${c}" aria-label="Цвет"></button>`).join("")}</div></div>
+    <div class="card"><div class="colors">${ACCENTS.map((c, i) => { const need = ACCENT_LEVELS[i] ?? 1; const lock = accentLevel() < need; return `<button style="--c:${c}" class="${p.accent === c ? "on" : ""}${lock ? " locked" : ""}" data-act="accent" data-v="${c}" aria-label="Цвет${lock ? ", заблокирован" : ""}">${lock ? "\uD83D\uDD12" : ""}</button>`; }).join("")}</div><div class="mini" style="margin-top:10px">${ui.colorMsg || "Новые цвета открываются с ростом уровня. Сейчас уровень ${accentLevel()}."}</div></div>
     <div class="label">Тема</div>
     <div class="card" style="padding:8px"><div class="seg">
       <button class="${p.theme === "light" ? "on" : ""}" data-act="theme" data-v="light">☀<span>Светлая</span></button>
@@ -419,6 +1625,7 @@ function profileView(){
       <div class="setrow"><span>Ежедневная цель, планов</span><div class="stepper"><button data-act="goal" data-v="-1">−</button><span>${p.goal}</span><button data-act="goal" data-v="1">+</button></div></div>
       <div class="setrow"><span>Начало дня</span><div class="val"><input type="time" value="${p.workStart}" data-set="workStart"></div></div>
       <div class="setrow"><span>Конец дня</span><div class="val"><input type="time" value="${p.workEnd}" data-set="workEnd"></div></div>
+      <div class="setrow"><span>Игровые элементы (уровни, испытания)</span><button class="toggle ${p.game !== false ? "on" : ""}" data-act="toggle-game" aria-label="Игра"></button></div>
       <div class="setrow"><span>Статистика на главной</span><button class="toggle ${p.showStats ? "on" : ""}" data-act="toggle-stats" aria-label="Статистика"></button></div>
     </div>
     <div class="label">Пароль</div>
@@ -437,6 +1644,10 @@ function profileView(){
     </div>
     <div class="label">Конфиденциальность</div>
     <div class="card">
+      <div class="setrow"><span>Экспорт задач в файл</span><button class="chip" data-act="export">Скачать</button></div>
+      <div class="setrow"><span>Импорт задач из файла</span><button class="chip" data-act="import-pick">Выбрать</button></div>
+      ${ui.importMsg ? `<div class="mini" style="padding:8px 0">${esc(ui.importMsg)}</div>` : ""}
+      <input type="file" id="impf" accept="application/json,.json" hidden>
       <div class="setrow"><span>Очистить все планы и заметки</span><button class="danger" data-act="wipe">${ui.confirm === "wipe" ? "Точно, очистить" : "Очистить"}</button></div>
       <div class="setrow"><span>Удалить аккаунт</span><button class="danger" data-act="delete">${ui.confirm === "delete" ? "Точно, удалить" : "Удалить"}</button></div>
     </div>
@@ -539,10 +1750,219 @@ function asstHTML(){
     ${choice}${reset}
     <form id="asst" class="row" style="margin-top:12px" autocomplete="off">
       <input id="asstInput" name="text" placeholder="Надиктуй или напиши задачу" ${a.stage === "done" ? "disabled" : ""} style="flex:1;min-width:0">
-      <button type="button" class="iconbtn" data-act="asst-mic" aria-label="Микрофон">🎙</button>
       <button class="plus" type="submit" aria-label="Отправить">↑</button>
     </form>
   </div>`;
+}
+
+let pomoTicker = null;
+let pomoPhaseIndex = -1;
+
+function studyOf(){
+  const d = me();
+  if (!d.study) d.study = emptyStudy();
+  return d.study;
+}
+
+function phaseLabel(p){
+  return p === "work" ? "Работа" : p === "long" ? "Длинный отдых" : "Отдых";
+}
+
+function daysLeftText(due, today){
+  const n = daysLeft(due, today);
+  return n === 0 ? "сегодня" : n < 0 ? "срок прошёл" : n === 1 ? "завтра" : "через " + n + " дн.";
+}
+
+const WD_NAMES = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
+function studyHTML(){
+  const s = studyOf();
+  if (!s.institution) {
+    return `<div class="wrap"><div class="card"><div class="title" style="font-size:20px">Где ты учишься?</div>
+      <div class="sub" style="margin:6px 0 12px">От этого зависит, как считаются оценки</div>
+      <div class="chips-row"><button class="chip-btn" data-act="inst" data-v="school">Школа</button><button class="chip-btn" data-act="inst" data-v="college">Колледж</button><button class="chip-btn" data-act="inst" data-v="university">Университет</button></div></div>`;
+  }
+  const today = todayStr();
+  const sec = ui.studySection || "today";
+  const form = ui.studyForm || null;
+  const sectionBtn = (k, label) => `<button class="chip-btn ${sec === k ? "on" : ""}" data-act="ssec" data-v="${k}">${label}</button>`;
+  const addBtn = (key, label) => form === key ? "" : `<button class="btn ghost" style="margin:8px 0" data-act="sform" data-v="${key}">${label}</button>`;
+  const cancel = `<button class="chip" type="button" data-act="sform" data-v="${form}">Отмена</button>`;
+  const msg = ui.studyMsg ? `<div class="err">${esc(ui.studyMsg)}</div>` : "";
+  const isSchool = s.institution === "school";
+  const sortedLessons = [...s.lessons].sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+  const lessonsToday = lessonsOn(s.lessons, today).map((l) => `<div class="setrow"><span>${esc(l.subject)}</span><span class="mini">${l.start}–${l.end}</span></div>`).join("") || `<div class="mini">Сегодня занятий нет</div>`;
+  const deadlineRows = (list) => list.map((d) => `<div class="setrow"><span>${esc(d.title)}</span><span class="mini">${daysLeftText(d.due, today)}</span></div>`).join("") || `<div class="mini">Ближайших сроков нет</div>`;
+  const subjectRows = s.subjects.map((sub) => {
+    const items = s.assessments.filter((a) => a.subjectId === sub.id);
+    const r = subjectResultView(s.institution, items, s.attendance, s.secondYear, sub.failedAttempts);
+    const fail = s.institution === "college" && r.kind === "next" ? `<div style="text-align:right;margin:-4px 0 8px"><button class="chip" data-act="fail" data-id="${sub.id}">+ неудачная пересдача</button></div>` : "";
+    return `<div class="setrow"><span>${esc(sub.name)}</span><span class="mini">${esc(r.text)}</span></div>${fail}`;
+  }).join("") || `<div class="mini">Добавь первый предмет</div>`;
+  const subjectOpts = s.subjects.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+  const pomo = ui.pomoStart ? pomodoroAt(Math.floor((Date.now() - ui.pomoStart) / 1000)) : null;
+  const pomoBlock = pomo
+    ? `<div class="card" style="text-align:center"><div class="mini">${phaseLabel(pomo.phase)}</div><div id="pomoTxt" class="pomo-time">${formatTime(pomo.remainingSec)}</div><div class="row" style="justify-content:center;margin-top:10px"><button class="chip" data-act="pomo-skip">Пропустить</button><button class="chip" data-act="pomo-stop">Стоп</button></div></div>`
+    : `<div class="card" style="text-align:center"><div class="mini">25 минут работы, 5 минут отдыха</div><div class="pomo-time" style="margin:6px 0">25:00</div><button class="btn" data-act="pomo-start">Начать</button></div>`;
+  const due = dueCards(s.cards, today)[0];
+  const cardBlock = due
+    ? `<div class="card" style="text-align:center"><div class="mini">Повторение · коробка ${due.box + 1}</div><div style="font-size:21px;font-weight:700;margin:10px 0">${esc(due.front)}</div>${ui.cardShown === due.id
+        ? `<div class="sub" style="margin-bottom:12px">${esc(due.back)}</div><div class="row" style="justify-content:center"><button class="chip" data-act="card-good" data-id="${due.id}">Помню</button><button class="chip" data-act="card-bad" data-id="${due.id}">Не помню</button></div>`
+        : `<button class="btn" data-act="card-show" data-id="${due.id}">Показать ответ</button>`}</div>`
+    : `<div class="mini" style="padding:8px 0">На сегодня карточки повторены</div>`;
+
+  let body = "";
+  if (sec === "today") {
+    body = `<div class="label">Сегодня</div><div class="card">${lessonsToday}</div>
+      <div class="label">Ближайшие сроки</div><div class="card">${deadlineRows(upcomingDeadlines(s.deadlines, today, 7))}</div>`;
+  } else if (sec === "grades") {
+    const second = s.institution === "college"
+      ? `<div style="margin:8px 0"><button class="chip" data-act="second">${s.secondYear ? "Второй курс и выше: да" : "Второй курс и выше: нет"}</button></div>` : "";
+    const att = s.institution === "college" && s.secondYear
+      ? (form === "att"
+        ? `<form id="att" class="card" autocomplete="off"><label>Посещаемость за семестр, %<input name="pct" type="number" min="0" max="100" step="1" value="${s.attendance}"></label><button class="btn" type="submit">Сохранить</button> ${cancel}</form>`
+        : `<div class="mini" style="margin:6px 0">Посещаемость: ${s.attendance}% <button class="chip" data-act="sform" data-v="att">Изменить</button></div>`)
+      : "";
+    const subjectForm = form === "subj"
+      ? `<form id="subj" class="card" autocomplete="off"><label>Название предмета<input name="name" required maxlength="40"></label><button class="btn" type="submit">Добавить</button> ${cancel}</form>`
+      : addBtn("subj", "+ Добавить предмет");
+    const asmForm = form === "asm"
+      ? `<form id="asm" class="card" autocomplete="off"><label>Предмет<select name="sub">${subjectOpts}</select></label>
+          <label>Тип<select name="kind"><option value="homework">Домашка</option><option value="test">Контрольная</option><option value="checkpoint">Контрольная точка</option><option value="exam">Экзамен</option></select></label>
+          <label>${isSchool ? "Оценка 2–5" : "Баллы"}<input name="value" type="number" step="0.5" min="${isSchool ? 2 : 0}" max="${isSchool ? 5 : 100}" value="${isSchool ? 5 : 10}"></label>
+          <button class="btn" type="submit">Записать</button> ${cancel}</form>`
+      : addBtn("asm", "+ Записать работу");
+    body = `<div class="label">Оценки</div><div class="card">${subjectRows}</div>${subjectForm}${asmForm}${second}${att}`;
+  } else if (sec === "schedule") {
+    const lessonRows = sortedLessons.map((l) => `<div class="setrow"><span>${WD_NAMES[l.weekday - 1]} · ${esc(l.subject)}</span><span class="mini">${l.start}–${l.end}</span></div>`).join("") || `<div class="mini">Расписание пустое</div>`;
+    const lesForm = form === "les"
+      ? `<form id="les" class="card" autocomplete="off"><label>День<select name="wd">${WD_NAMES.map((n, i) => `<option value="${i + 1}">${n}</option>`).join("")}</select></label>
+          <label>Предмет<input name="subject" required maxlength="40"></label>
+          <div class="grid2"><label>Начало<input name="start" type="time" required value="09:00"></label><label>Конец<input name="end" type="time" required value="10:30"></label></div>
+          <button class="btn" type="submit">Добавить занятие</button> ${cancel}</form>`
+      : addBtn("les", "+ Добавить занятие");
+    const dlForm = form === "dl"
+      ? `<form id="dl" class="card" autocomplete="off"><label>Что сдать<input name="title" required maxlength="60"></label><label>Срок<input name="due" type="date" required value="${today}"></label><button class="btn" type="submit">Добавить срок</button> ${cancel}</form>`
+      : addBtn("dl", "+ Добавить срок");
+    body = `<div class="label">Занятия</div><div class="card">${lessonRows}</div>${lesForm}
+      <div class="label">Дедлайны</div><div class="card">${deadlineRows(upcomingDeadlines(s.deadlines, today, 60))}</div>${dlForm}`;
+  } else {
+    const cardForm = form === "card"
+      ? `<form id="card" class="card" autocomplete="off"><label>Вопрос<input name="front" required maxlength="120"></label><label>Ответ<input name="back" required maxlength="300"></label><button class="btn" type="submit">Добавить карточку</button> ${cancel}</form>`
+      : addBtn("card", "+ Добавить карточку");
+    body = `<div class="label">Помодоро</div>${pomoBlock}<div class="label">Карточки</div>${cardBlock}${cardForm}`;
+  }
+
+  return `<div class="wrap"><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="chip" data-act="inst-reset">Сменить заведение</button></div>
+    <div class="sub-tabs" style="margin:12px 0">${sectionBtn("today", "Сегодня")}${sectionBtn("grades", "Оценки")}${sectionBtn("schedule", "Расписание")}${sectionBtn("focus", "Фокус")}</div>
+    ${msg}${body}</div>`;
+}
+
+function startPomoTicker(){
+  if (pomoTicker) clearInterval(pomoTicker);
+  pomoPhaseIndex = ui.pomoStart ? pomodoroAt(Math.floor((Date.now() - ui.pomoStart) / 1000)).index : -1;
+  pomoTicker = setInterval(() => {
+    if (!ui.pomoStart) {
+      clearInterval(pomoTicker);
+      pomoTicker = null;
+      return;
+    }
+    const st = pomodoroAt(Math.floor((Date.now() - ui.pomoStart) / 1000));
+    if (st.index !== pomoPhaseIndex) {
+      pomoPhaseIndex = st.index;
+      render();
+      return;
+    }
+    const el = document.getElementById("pomoTxt");
+    if (el) el.textContent = formatTime(st.remainingSec);
+  }, 1000);
+}
+
+let restTicker = null;
+
+function habitsOf(){
+  const d = me();
+  if (!d.habits) d.habits = starterHabits();
+  return d.habits;
+}
+
+function exName(id){
+  const e = DEFAULT_EXERCISES.find((x) => x.id === id);
+  return e ? e.name : id;
+}
+
+function sportHTML(){
+  const today = todayStr();
+  const habits = habitsOf();
+  const workouts = me().workouts || [];
+  const selected = ui.exercise || DEFAULT_EXERCISES[0].id;
+  const habitRows = habits.map((h) => {
+    const done = h.doneDays.includes(today);
+    return `<div class="setrow"><button class="check" data-act="habit" data-id="${h.id}" aria-pressed="${done}" style="${done ? "background:var(--green);border-color:var(--green);color:#fff" : ""}">${done ? "✓" : ""}</button><span class="grow">${esc(h.name)}</span><span class="mini">серия ${habitStreak(h.doneDays, today)}</span></div>`;
+  }).join("");
+  const options = DEFAULT_EXERCISES.map((e) => `<option value="${e.id}" ${e.id === selected ? "selected" : ""}>${esc(e.name)}</option>`).join("");
+  const todaySets = workouts.filter((w) => w.date === today).map((w) => {
+    const s = w.sets[0];
+    return `<div class="setrow"><span>${esc(exName(w.exerciseId))}</span><span class="mini">${s ? s.weight + " кг × " + s.reps : ""}</span></div>`;
+  }).join("") || `<div class="mini">Сегодня подходов пока нет</div>`;
+  const prog = exerciseProgress(workouts, selected).slice(-6);
+  const maxW = Math.max(1, ...prog.map((p) => p.maxWeight));
+  const bars = prog.map((p) => `<div class="wcol"><div class="wbar"><i style="height:${Math.max(6, Math.round(p.maxWeight / maxW * 100))}%"></i></div><small>${p.date.slice(5)}</small></div>`).join("")
+    || `<div class="mini">Пока нет подходов по этому упражнению</div>`;
+  const rest = ui.rest
+    ? `<div class="card" style="text-align:center"><div class="mini">Отдых</div><div id="restTxt" style="font-size:34px;font-weight:800">${formatTime(remainingSec(ui.rest, Date.now()))}</div><button class="chip" data-act="rest-skip">Пропустить отдых</button></div>`
+    : "";
+  return `
+    <div class="label">Привычки</div><div class="card">${habitRows}</div>
+    <div class="label">Тренировка</div>
+    ${ui.workoutMsg ? `<div class="err">${esc(ui.workoutMsg)}</div>` : ""}
+    <form id="wk" class="card" autocomplete="off">
+      <label>Упражнение<select name="ex" data-ex>${options}</select></label>
+      <div class="grid2">
+        <label>Вес, кг<input name="weight" type="number" inputmode="decimal" min="0" max="500" step="0.5" value="0"></label>
+        <label>Повторения<input name="reps" type="number" inputmode="numeric" min="1" max="100" step="1" value="8"></label>
+      </div>
+      <button class="btn" type="submit">Записать подход</button>
+    </form>
+    ${rest}
+    <div class="label">Сегодня</div><div class="card">${todaySets}</div>
+    <div class="label">Прогресс: ${esc(exName(selected))}</div>
+    <div class="card"><div class="wchart" style="height:120px">${bars}</div></div>`;
+}
+
+function addSet(form){
+  const set = { weight: Number(form.weight.value), reps: Number(form.reps.value) };
+  if (!isValidSet(set)) {
+    ui.workoutMsg = "Проверь вес (от 0 до 500 кг) и повторения (от 1 до 100)";
+    return render();
+  }
+  const list = me().workouts || (me().workouts = []);
+  list.push({ id: uid(), date: todayStr(), exerciseId: form.ex.value, sets: [set] });
+  ui.exercise = form.ex.value;
+  ui.workoutMsg = "";
+  ui.rest = { startedAtMs: Date.now(), durationSec: 90 };
+  save();
+  startRestTicker();
+  render();
+}
+
+function startRestTicker(){
+  if (restTicker) clearInterval(restTicker);
+  restTicker = setInterval(() => {
+    if (!ui.rest) {
+      clearInterval(restTicker);
+      restTicker = null;
+      return;
+    }
+    const left = remainingSec(ui.rest, Date.now());
+    const el = document.getElementById("restTxt");
+    if (el) el.textContent = formatTime(left);
+    if (left === 0) {
+      ui.rest = null;
+      clearInterval(restTicker);
+      restTicker = null;
+      render();
+    }
+  }, 1000);
 }
 
 function sheetHTML(){
@@ -570,7 +1990,7 @@ function appView(){
   let content;
   if (ui.tab === "today") content = todayView();
   else if (ui.tab === "cal") content = calendarView();
-  else if (ui.tab === "study" || ui.tab === "sport") content = sectionView(ui.tab);
+  else if (ui.tab === "study" || ui.tab === "sport") content = ui.tab === "study" ? sectionView("study") + studyHTML() : sectionView("sport") + sportHTML();
   else content = profileView();
   return `
   <div class="page ${fresh ? "fresh" : ""}">${content}</div>
@@ -631,7 +2051,11 @@ document.addEventListener("click", e => {
   if (a === "pickavatar") { const f = document.getElementById("avf"); if (f) f.click(); return; }
   if (a === "removeavatar") { delete prof().avatar; save(); return render(); }
   if (a === "editprofile") { ui.editProfile = !ui.editProfile; return render(); }
-  if (a === "accent") { prof().accent = v; save(); return render(); }
+  if (a === "accent") {
+    const need = ACCENT_LEVELS[ACCENTS.indexOf(v)] ?? 1;
+    if (levelFromXp(totalXp(me().plans, todayStr())) < need) { ui.colorMsg = "Этот цвет откроется на уровне " + need + ". Сейчас уровень " + accentLevel() + "."; return render(); }
+    prof().accent = v; ui.colorMsg = ""; save(); return render();
+  }
   if (a === "theme") { prof().theme = v; try { localStorage.setItem(KEY + "-theme", v); } catch (er) {} save(); return render(); }
   if (a === "asst-open") { ui.asst = asstNew("life"); ui.assistant = true; return render(); }
   if (a === "asst-close") { ui.assistant = false; return render(); }
@@ -649,6 +2073,43 @@ document.addEventListener("click", e => {
     if (p.notify && window.Notification && Notification.permission === "default") Notification.requestPermission();
     return render();
   }
+  if (a === "ssec") { ui.studySection = v; ui.studyForm = null; ui.studyMsg = ""; return render(); }
+  if (a === "sform") { ui.studyForm = ui.studyForm === v ? null : v; ui.studyMsg = ""; return render(); }
+  if (a === "inst") { studyOf().institution = v; ui.studyMsg = ""; save(); return render(); }
+  if (a === "inst-reset") { studyOf().institution = null; save(); return render(); }
+  if (a === "second") { const s = studyOf(); s.secondYear = !s.secondYear; save(); return render(); }
+  if (a === "fail") {
+    const sub = studyOf().subjects.find((x) => x.id === id);
+    if (sub) { sub.failedAttempts = (sub.failedAttempts || 0) + 1; save(); }
+    return render();
+  }
+  if (a === "card-show") { ui.cardShown = id; return render(); }
+  if (a === "card-good" || a === "card-bad") {
+    const s = studyOf();
+    const i = s.cards.findIndex((c) => c.id === id);
+    if (i >= 0) s.cards[i] = reviewCard(s.cards[i], a === "card-good", todayStr());
+    ui.cardShown = null; save(); return render();
+  }
+  if (a === "pomo-start") { ui.pomoStart = Date.now(); startPomoTicker(); return render(); }
+  if (a === "pomo-skip") {
+    if (ui.pomoStart) { ui.pomoStart = skipPomodoro(ui.pomoStart, Date.now()); startPomoTicker(); }
+    return render();
+  }
+  if (a === "pomo-stop") {
+    ui.pomoStart = null;
+    if (pomoTicker) { clearInterval(pomoTicker); pomoTicker = null; }
+    return render();
+  }
+  if (a === "habit") {
+    const h = habitsOf().find((x) => x.id === id);
+    if (h) { h.doneDays = toggleDay(h.doneDays, todayStr()); save(); render(); }
+    return;
+  }
+  if (a === "rest-skip") {
+    if (ui.rest) { ui.rest = skipRest(ui.rest, Date.now()); render(); }
+    return;
+  }
+  if (a === "toggle-game") { const p = prof(); p.game = p.game === false; save(); return render(); }
   if (a === "toggle-stats") { const p = prof(); p.showStats = !p.showStats; save(); return render(); }
   if (a === "goal") { const p = prof(); p.goal = Math.max(1, Math.min(20, p.goal + Number(v))); save(); return render(); }
   if (a === "toggle") { const p = me().plans.find(x => x.id === id); if (p) { p.done = !p.done; save(); render(); } return; }
@@ -656,6 +2117,17 @@ document.addEventListener("click", e => {
   if (a === "logout") { db.session = null; ui.tab = "today"; save(); return render(); }
   if (a === "switch") { db.session = v; ui.tab = "today"; save(); return render(); }
   if (a === "addaccount") { db.session = null; ui.mode = "reg"; ui.err = ""; return render(); }
+  if (a === "export") {
+    const text = buildExport(db.session, me(), new Date().toISOString());
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "maestro-" + db.session + ".json";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
+  if (a === "import-pick") { const f = document.getElementById("impf"); if (f) f.click(); return; }
   if (a === "wipe") {
     if (ui.confirm !== "wipe") { ui.confirm = "wipe"; return render(); }
     me().plans = []; me().notes = { study: "", sport: "" }; ui.confirm = ""; save(); return render();
@@ -672,6 +2144,28 @@ document.addEventListener("submit", e => {
   if (f.id === "auth") return doAuth(f);
   if (f.id === "pwd") return changePassword(f);
   if (f.id === "asst") { asstSend(f.text.value); return render(); }
+  if (f.id === "wk") { addSet(f); return; }
+  if (["subj", "asm", "att", "dl", "les", "card"].includes(f.id) && !ui.studyMsg) ui.studyForm = null;
+  if (f.id === "subj") { studyOf().subjects.push({ id: uid(), name: f.name.value.trim(), failedAttempts: 0 }); save(); return render(); }
+  if (f.id === "asm") {
+    const s = studyOf();
+    const v = Number(f.value.value);
+    const lo = s.institution === "school" ? 2 : 0, hi = s.institution === "school" ? 5 : 100;
+    if (!(v >= lo && v <= hi)) { ui.studyMsg = "Значение должно быть от " + lo + " до " + hi; return render(); }
+    if (s.institution === "college") {
+      const sum = s.assessments.filter((a) => a.subjectId === f.sub.value).reduce((t, a) => t + a.value, 0) + v;
+      if (sum > 100) { ui.studyMsg = "Сумма баллов по предмету не больше 100"; return render(); }
+    }
+    s.assessments.push({ id: uid(), subjectId: f.sub.value, kind: f.kind.value, value: v, date: todayStr() });
+    ui.studyMsg = ""; save(); return render();
+  }
+  if (f.id === "att") { studyOf().attendance = Math.min(100, Math.max(0, Number(f.pct.value) || 0)); save(); return render(); }
+  if (f.id === "dl") { studyOf().deadlines.push({ id: uid(), title: f.title.value.trim(), due: f.due.value }); save(); return render(); }
+  if (f.id === "les") {
+    studyOf().lessons.push({ id: uid(), weekday: Number(f.wd.value), start: f.start.value, end: f.end.value, subject: f.subject.value.trim() });
+    save(); return render();
+  }
+  if (f.id === "card") { studyOf().cards.push({ id: uid(), front: f.front.value.trim(), back: f.back.value.trim(), box: 0, due: todayStr() }); save(); return render(); }
   if (f.id === "profile") { const p = prof(); p.name = f.name.value.trim(); p.bio = f.bio.value.trim(); ui.editProfile = false; save(); return render(); }
   if (f.id === "add") {
     const text = f.text.value.trim();
@@ -724,6 +2218,28 @@ document.addEventListener("change", e => {
   reader.readAsDataURL(file);
 });
 
+document.addEventListener("change", e => {
+  if (e.target.id !== "impf" || !db.session) return;
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  file.text().then(text => {
+    const { result, user } = mergeImport(text, me());
+    if (result.ok) {
+      db.data[db.session] = user;
+      save();
+      ui.importMsg = "Импорт: добавлено " + result.added + ", пропущено " + result.skipped + (result.notesFilled ? ", заметки дополнены" : "");
+    } else {
+      ui.importMsg = result.error;
+    }
+    render();
+  });
+});
+
+document.addEventListener("change", e => {
+  if (e.target.matches && e.target.matches("[data-ex]")) { ui.exercise = e.target.value; render(); }
+});
+
 document.addEventListener("input", e => {
   const d = e.target.dataset || {};
   if (d.note && db.session) { me().notes[d.note] = e.target.value; save(); }
@@ -739,32 +2255,15 @@ function checkReminders(){
   if (!db.session || !db.data[db.session]) return;
   const p = prof();
   if (!p.notify) return;
-  const now = new Date();
-  const hm = pad(now.getHours()) + ":" + pad(now.getMinutes());
-  const today = todayStr();
-  p.notified = p.notified || [];
-  me().plans.forEach(x => {
-    if (x.done || x.date !== today || !x.time || x.time > hm || p.notified.includes(x.id)) return;
-    p.notified.push(x.id);
+  const { due, notified } = dueReminders(me().plans, nowParts(new Date()), p.notified || []);
+  p.notified = [...notified];
+  for (const x of due) {
     if (window.Notification && Notification.permission === "granted") {
-      new Notification("Задачник Маэстро", { body: x.text + " · " + x.time });
+      new Notification("Задачник Маэстро", { body: x.text + " \u00b7 " + x.time });
     }
-  });
+  }
   save();
 }
-
-let dict = null;
-try {
-  if (window.claude && claude.use) {
-    claude.use("dictation").then(d => {
-      dict = d;
-      if (d) d.onFinal(({ text }) => {
-        const el = document.getElementById("asstInput");
-        if (el) el.value = (el.value ? el.value + " " : "") + text;
-      });
-    }).catch(() => {});
-  }
-} catch (e) {}
 
 setInterval(checkReminders, 30000);
 render();
