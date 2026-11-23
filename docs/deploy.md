@@ -38,6 +38,13 @@
 | `PORT` | `3000` | Порт (Fly/Render подставляют свой) |
 | `DB_PATH` | `maestro.db` | Путь к файлу SQLite; в контейнере `/data/maestro.db` |
 | `CORS_ORIGIN` | `*` | Источник для CORS; после стабилизации можно сузить до домена Pages |
+| `VAPID_PUBLIC_KEY` | — | Публичный ключ Web Push (уходит клиенту через `/push/vapid`) |
+| `VAPID_PRIVATE_KEY` | — | Приватный ключ VAPID — только в секретах хостинга |
+| `VAPID_SUBJECT` | `mailto:admin@…` | Контакт для push-сервисов (требование протокола VAPID) |
+
+Без VAPID-ключей сервер работает как обычно, но push-эндпоинты отвечают `503 push_not_configured`.
+Сгенерировать пару: `node -e "import('web-push').then(m => console.log(m.generateVAPIDKeys()))"`,
+залить на Fly: `fly secrets set VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… -a maestro-server`.
 
 ## Бэкапы
 
