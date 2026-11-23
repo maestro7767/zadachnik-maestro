@@ -26,6 +26,16 @@ export function openDb(path = ":memory:"): Db {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
+    CREATE TABLE IF NOT EXISTS entities (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      coll TEXT NOT NULL,
+      id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      PRIMARY KEY (user_id, coll, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_entities_pull ON entities(user_id, updated_at);
   `);
   return db;
 }

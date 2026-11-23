@@ -5,6 +5,7 @@ import type { Db } from "./db.ts";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { generateToken, tokenHash, ACCESS_TTL_MS, REFRESH_TTL_MS } from "./tokens.ts";
 import { createRateLimiter } from "./ratelimit.ts";
+import { MAX_PUSH_CHANGES, applyChange, normalizeIso, pullSince, validateChange } from "./sync.ts";
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 8;
@@ -164,6 +165,51 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
       return reply.code(401).send({ error: "unauthorized" });
     }
     return reply.send({ userId: user.id, email: user.email });
+  });
+
+  app.get("/sync/pull", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const query = req.query as Record<string, unknown>;
+    let since: string | null = null;
+    if (typeof query.since === "string" && query.since !== "") {
+      since = normalizeIso(query.since);
+      if (!since) {
+        return reply.code(400).send({ error: "invalid_since" });
+      }
+    }
+    return reply.send({ now: new Date(nowMs()).toISOString(), changes: pullSince(db, userId, since) });
+  });
+
+  app.post("/sync/push", { bodyLimit: 5 * 1024 * 1024 }, (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const body = req.body as Record<string, unknown> | null;
+    if (!body || !Array.isArray(body.changes)) {
+      return reply.code(400).send({ error: "invalid_input" });
+    }
+    if (body.changes.length > MAX_PUSH_CHANGES) {
+      return reply.code(400).send({ error: "too_many_changes" });
+    }
+    // Каждое изменение проверяется отдельно: невалидные отклоняем, валидные применяем.
+    const results = (body.changes as unknown[]).map((raw) => {
+      const v = validateChange(raw);
+      if (!v.ok) {
+        const r = raw as Record<string, unknown> | null;
+        return {
+          coll: typeof r?.coll === "string" ? r.coll : null,
+          id: typeof r?.id === "string" ? r.id : null,
+          status: "rejected" as const,
+          error: v.error,
+        };
+      }
+      return { coll: v.change.coll, id: v.change.id, status: applyChange(db, userId, v.change) };
+    });
+    return reply.send({ now: new Date(nowMs()).toISOString(), results });
   });
 
   return app;
