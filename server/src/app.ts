@@ -10,6 +10,8 @@ import { MAX_PUSH_CHANGES, applyChange, normalizeIso, pullSince, validateChange 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 8;
 const MAX_PASSWORD_LEN = 128;
+const MIN_NAME_LEN = 2;
+const MAX_NAME_LEN = 30;
 
 export interface TokenPair {
   readonly accessToken: string;
@@ -23,6 +25,8 @@ export interface BuildOptions {
   nowMs?: () => number;
   /** Лимит попыток входа/регистрации с одного IP: limit за windowMs. */
   rateLimit?: { limit: number; windowMs: number };
+  /** Разрешённый источник CORS. По умолчанию "*" — API без cookie, авторизация по Bearer. */
+  corsOrigin?: string;
 }
 
 interface TokenRow {
@@ -35,6 +39,7 @@ interface UserRow {
   id: string;
   email: string;
   pass_hash: string;
+  name: string;
 }
 
 /**
@@ -45,6 +50,16 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const nowMs = opts.nowMs ?? (() => Date.now());
   const limiter = createRateLimiter(opts.rateLimit?.limit ?? 10, opts.rateLimit?.windowMs ?? 10 * 60_000);
+  const corsOrigin = opts.corsOrigin ?? "*";
+
+  // CORS: клиент живёт на GitHub Pages, сервер — на своём хостинге.
+  // Cookie не используются, авторизация по Bearer-токену, поэтому "*" безопасен.
+  app.addHook("onSend", async (req, reply) => {
+    reply.header("access-control-allow-origin", corsOrigin);
+    reply.header("access-control-allow-methods", "GET, POST, OPTIONS");
+    reply.header("access-control-allow-headers", "authorization, content-type");
+  });
+  app.options("/*", (req, reply) => reply.code(204).send());
 
   /** Хеш-заглушка: на несуществующий email тратим столько же времени, чтобы не раскрывать, какие адреса заняты. */
   let dummyHash: string | null = null;
@@ -74,7 +89,7 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
   }
 
   function findUserByEmail(email: string): UserRow | undefined {
-    return db.prepare("SELECT id, email, pass_hash FROM users WHERE email = ?").get(email) as UserRow | undefined;
+    return db.prepare("SELECT id, email, pass_hash, name FROM users WHERE email = ?").get(email) as UserRow | undefined;
   }
 
   function bearerUserId(req: FastifyRequest): string | null {
@@ -103,18 +118,25 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     if (creds.password.length < MIN_PASSWORD_LEN || creds.password.length > MAX_PASSWORD_LEN) {
       return reply.code(400).send({ error: "weak_password" });
     }
+    // Ник — необязателен для API (клиент требует его на форме), но если передан — проверяем.
+    const rawName = (req.body as Record<string, unknown> | null)?.name;
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (name.length > 0 && (name.length < MIN_NAME_LEN || name.length > MAX_NAME_LEN)) {
+      return reply.code(400).send({ error: "invalid_name" });
+    }
     if (findUserByEmail(creds.email)) {
       return reply.code(409).send({ error: "email_taken" });
     }
     const id = randomUUID();
     const passHash = await hashPassword(creds.password);
-    db.prepare("INSERT INTO users (id, email, pass_hash, created_at) VALUES (?, ?, ?, ?)").run(
+    db.prepare("INSERT INTO users (id, email, pass_hash, name, created_at) VALUES (?, ?, ?, ?, ?)").run(
       id,
       creds.email,
       passHash,
+      name,
       new Date(nowMs()).toISOString(),
     );
-    return reply.code(201).send({ userId: id, ...issueTokens(id) });
+    return reply.code(201).send({ userId: id, name, ...issueTokens(id) });
   });
 
   app.post("/auth/login", async (req, reply) => {
@@ -132,7 +154,7 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     if (!user || !ok) {
       return reply.code(401).send({ error: "invalid_credentials" });
     }
-    return reply.send({ userId: user.id, ...issueTokens(user.id) });
+    return reply.send({ userId: user.id, name: user.name, ...issueTokens(user.id) });
   });
 
   app.post("/auth/refresh", (req, reply) => {
@@ -160,11 +182,11 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     if (!userId) {
       return reply.code(401).send({ error: "unauthorized" });
     }
-    const user = db.prepare("SELECT id, email FROM users WHERE id = ?").get(userId) as UserRow | undefined;
+    const user = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(userId) as UserRow | undefined;
     if (!user) {
       return reply.code(401).send({ error: "unauthorized" });
     }
-    return reply.send({ userId: user.id, email: user.email });
+    return reply.send({ userId: user.id, email: user.email, name: user.name });
   });
 
   app.get("/sync/pull", (req, reply) => {

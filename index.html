@@ -110,16 +110,12 @@ input[type="date"],input[type="time"]{min-width:0;max-width:100%;-webkit-appeara
 .wcol.now small{color:var(--accent);font-weight:700}
 .phrase{margin:14px 8px 0;font-size:15px;color:var(--mute);font-style:italic;text-align:center}
 .logo{width:84px;height:84px;border-radius:24px;background:linear-gradient(135deg,#1c1c26,#302450);color:#ff5a36;font-size:50px;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;box-shadow:0 12px 32px rgba(255,90,54,.28)}
-.feats{display:grid;gap:10px;margin:24px 0 14px}
-.feat{display:flex;gap:12px;align-items:center;background:var(--card);border-radius:16px;padding:14px}
-.feat span{font-size:20px;width:44px;height:44px;border-radius:13px;background:var(--field);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .feat b{display:block;font-size:15px}
 .feat small{color:var(--mute);font-size:13px}
-.soon{text-align:center;font-size:13px;color:var(--mute);margin-top:18px}
 .tabs{backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);background:color-mix(in srgb,var(--card) 82%,transparent)}
 .cicon{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;background:color-mix(in srgb,var(--c) 22%,transparent);flex:0 0 auto;margin-top:0}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.page.fresh{animation:fadeUp .3s ease both}
+.page.fresh{animation:fadeUp .3s ease backwards}
 .msgs{display:flex;flex-direction:column;gap:8px;max-height:42vh;overflow:auto;margin:12px 0;padding:4px 0}
 .msg{max-width:82%;padding:10px 14px;border-radius:16px;font-size:16px;line-height:1.35;word-break:break-word}
 .msg.bot{background:var(--field);align-self:flex-start;border-bottom-left-radius:6px}
@@ -192,6 +188,9 @@ import { pomodoroAt, skipPomodoro } from "./src/study/pomodoro.ts";
 import { reviewCard, dueCards } from "./src/study/flashcards.ts";
 import { subjectResultView } from "./src/study/journal.ts";
 import { parseWhen } from "./src/assistant/parse.ts";
+import { createApi, ApiError } from "./src/sync/api.ts";
+import { SyncEngine } from "./src/sync/engine.ts";
+import { applyRemoteChanges } from "./src/sync/merge.ts";
 
 const ACCENT_LEVELS = [1, 2, 3, 4, 5, 6, 7];
 (function(){
@@ -221,14 +220,93 @@ if (SpeechRecognitionApi) {
 let db = { users: {}, data: {}, session: null };
 db = loadAppData(localStorage, KEY);
 
-const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "" };
+const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null };
 
 function todayStr(){ return ymd(new Date()); }
 function nowIso(){ return new Date().toISOString(); }
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function save(){ try { saveAppData(localStorage, KEY, db); } catch (e) {} }
+function persist(){ try { saveAppData(localStorage, KEY, db); } catch (e) {} }
+function save(){ persist(); if (sync && cloud && db.session === cloud.email) sync.notifyLocal(me()); }
 function me(){ return db.data[db.session]; }
+
+/* --- Облачная синхронизация --- */
+const SERVER_URL = (() => { try { return localStorage.getItem(KEY + "-server") || "http://localhost:3000"; } catch (e) { return "http://localhost:3000"; } })();
+const api = createApi(SERVER_URL, fetch);
+
+function loadCloud(){ try { const raw = localStorage.getItem(KEY + "-cloud"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
+function saveCloud(c){ try { if (c) localStorage.setItem(KEY + "-cloud", JSON.stringify(c)); else localStorage.removeItem(KEY + "-cloud"); } catch (e) {} }
+let cloud = loadCloud();
+let sync = null;
+
+function isCloudSession(){ return !!(cloud && db.session === cloud.email); }
+
+function cloudErrorText(e){
+  if (!(e instanceof ApiError)) return "Сервер недоступен. Проверь интернет и попробуй снова.";
+  return ({
+    email_taken: "Такой email уже зарегистрирован",
+    invalid_credentials: "Неверный email или пароль",
+    weak_password: "Пароль: от 8 до 128 символов",
+    invalid_email: "Проверь email",
+    rate_limited: "Слишком много попыток. Подожди 10 минут",
+  })[e.code] || "Ошибка сервера: " + e.code;
+}
+
+function syncStatusText(){
+  const s = ui.syncStatus || "ok";
+  return { ok: "Синхронизировано ✓", syncing: "Синхронизация…", offline: "Нет связи — правки сохранены локально", unauthorized: "Требуется повторный вход" }[s] || s;
+}
+
+function cloudLogout(msg){
+  if (cloud) api.logout(cloud.refreshToken).catch(() => {});
+  if (sync) { sync.stop(); sync = null; }
+  cloud = null; saveCloud(null);
+  if (isCloudSession() || (db.session && db.session.includes("@"))) db.session = null;
+  if (msg) ui.err = msg;
+  persist(); render();
+}
+
+function startSync(){
+  if (!isCloudSession()) return;
+  if (sync) sync.stop();
+  sync = new SyncEngine({
+    api, store: localStorage, storageKey: KEY + "-sync-" + cloud.email, session: cloud,
+    onRemote: (changes) => {
+      if (!isCloudSession()) return;
+      const changed = applyRemoteChanges(me(), changes);
+      sync.noteSnapshot(me()); // сначала снимок, чтобы правки не уехали обратно как локальные
+      if (changed) { persist(); render(); }
+    },
+    onStatus: (s) => { ui.syncStatus = s; if (isCloudSession()) render(); },
+    onSession: (s) => { cloud = s; saveCloud(cloud); },
+    onAuthLost: () => cloudLogout("Сессия истекла. Войди снова."),
+  });
+  (async () => {
+    try {
+      if (sync.needsInitialPull()) {
+        const n = await sync.initialPull();
+        if (n === 0) offerMigration();
+      } else {
+        await sync.syncNow();
+      }
+      if (isCloudSession()) sync.noteSnapshot(me());
+    } catch (e) { /* нет сети — движок сам планирует повторы */ }
+  })();
+}
+
+/** Первый вход на пустой сервер: предлагаем перенести локальный аккаунт в облако. */
+function offerMigration(){
+  const locals = Object.keys(db.data).filter(n => n !== db.session && !n.includes("@") && !n.endsWith("-profile"));
+  if (locals.length > 0) { ui.migrate = locals; render(); }
+}
+
+function migrateHTML(){
+  return `<div class="sheet-bg" data-act="migrate-skip"></div><div class="sheet"><div class="grab"></div>
+    <div class="title" style="font-size:22px;margin-bottom:8px">Перенести данные в облако?</div>
+    <div class="sub" style="margin-bottom:14px">На сервере пусто. На этом устройстве есть локальные аккаунты — выбери, чьи планы и заметки загрузить в облако.</div>
+    ${ui.migrate.map(n => `<div class="setrow"><span>${esc(n)}</span><button class="chip" data-act="migrate" data-v="${esc(n)}">Перенести</button></div>`).join("")}
+    <button class="btn ghost" style="margin-top:14px" data-act="migrate-skip">Начать с чистого листа</button></div>`;
+}
 function prof(){
   const d = me();
   if (!d.profile) d.profile = { name: "", bio: "", showStats: true, accent: ACCENTS[0], theme: "dark", notify: true, goal: 2, workStart: "09:00", workEnd: "18:00" };
@@ -271,30 +349,30 @@ function icon(name){
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
 }
 
-const GOOGLE = '<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6C12.3 13.5 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.4 28.8c-.5-1.5-.8-3-.8-4.8s.3-3.3.8-4.8l-7.8-6C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.8l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.3 0-11.7-4.2-13.6-9.9l-7.8 6C6.5 42.6 14.6 48 24 48z"/></svg>';
-const APPLE = '<svg viewBox="0 0 384 512"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>';
 
 function authView(){
   const reg = ui.mode === "reg";
-  return `<div class="auth">
-    <div class="logo">М</div><div class="title" style="margin:8px 0 4px">${reg ? "Создать аккаунт" : "Добро пожаловать"}</div>
-    <div class="sub" style="margin-bottom:20px">Планы на день и неделю в одном месте</div>
-    ${ui.err ? `<div class="err">${esc(ui.err)}</div>` : ""}
-    <form id="auth" autocomplete="off">
+  const cloudForm = ui.cloudAuth
+    ? `<form id="cloudauth" autocomplete="off">
+      ${reg ? `<label>Ник<input name="nick" required minlength="2" maxlength="30" placeholder="Как тебя называть?"></label>` : ""}
+      <label>Email<input name="email" type="email" required maxlength="254" placeholder="you@example.com"></label>
+      <label>Пароль<input name="pass" type="password" required minlength="8" maxlength="128"></label>
+      <button class="btn" type="submit" ${ui.busy ? "disabled" : ""}>${ui.busy ? "Подождите…" : reg ? "Зарегистрироваться" : "Войти"}</button>
+    </form>
+    <div class="mini" style="margin-top:10px">☁️ Синхронизация между устройствами через сервер</div>`
+    : `<form id="auth" autocomplete="off">
       <label>Логин<input name="login" required minlength="3" maxlength="20" pattern="[a-zA-Z0-9_.\\-]{3,20}"></label>
       <label>Пароль<input name="pass" type="password" required minlength="6"></label>
       <button class="btn" type="submit">${reg ? "Зарегистрироваться" : "Войти"}</button>
     </form>
+    <div class="mini" style="margin-top:10px">📴 Только это устройство, без синхронизации</div>`;
+  return `<div class="auth">
+    <div class="logo">М</div><div class="title" style="margin:8px 0 4px">${reg ? "Создать аккаунт" : "Добро пожаловать"}</div>
+    <div class="sub" style="margin-bottom:20px">${reg ? "Почта, пароль и ник — всё" : "Планы на день и неделю в одном месте"}</div>
+    ${ui.err ? `<div class="err">${esc(ui.err)}</div>` : ""}
+    ${cloudForm}
     <button class="btn ghost" style="margin-top:10px" data-act="mode">${reg ? "У меня уже есть аккаунт" : "Создать аккаунт"}</button>
-    <div class="feats">
-      <div class="feat"><span>📅</span><div><b>Планы на день и неделю</b><small>Всё на одном экране</small></div></div>
-      <div class="feat"><span>🔔</span><div><b>Напоминания</b><small>Уведомления к нужному времени</small></div></div>
-      <div class="feat"><span>📈</span><div><b>Прогресс</b><small>Серия дней и статистика</small></div></div>
-    </div>
-    <div class="soon">Вход через Apple и Google появится позже</div>
-    
-    
-    
+    <button class="btn ghost" data-act="toggleauth">${ui.cloudAuth ? "Локальный вход (без облака)" : "Войти по почте (с облаком)"}</button>
   </div>`;
 }
 
@@ -497,14 +575,24 @@ function profileView(){
       <div class="setrow"><span>Игровые элементы (уровни, испытания)</span><button class="toggle ${p.game !== false ? "on" : ""}" data-act="toggle-game" aria-label="Игра"></button></div>
       <div class="setrow"><span>Статистика на главной</span><button class="toggle ${p.showStats ? "on" : ""}" data-act="toggle-stats" aria-label="Статистика"></button></div>
     </div>
+    <div class="label">Синхронизация</div>
+    <div class="card">
+      ${isCloudSession() ? `
+      <div class="setrow"><span>Статус</span><span class="mini">${esc(syncStatusText())}</span></div>
+      <div class="setrow"><span>Сервер</span><span class="mini">${esc(SERVER_URL)}</span></div>
+      <div class="setrow"><span>Синхронизировать сейчас</span><button class="chip" data-act="syncnow">Обновить</button></div>`
+      : `<div class="setrow"><span>Облако: планы на всех устройствах</span><button class="chip" data-act="addaccount">Войти по почте</button></div>`}
+    </div>
     <div class="label">Пароль</div>
     <div class="card">
       ${ui.pwdMsg ? `<div class="err">${esc(ui.pwdMsg)}</div>` : ""}
-      <form id="pwd" autocomplete="off">
+      ${isCloudSession()
+        ? `<div class="mini" style="padding:6px 0">Облачный аккаунт: смена пароля появится вместе с подтверждением email</div>`
+        : `<form id="pwd" autocomplete="off">
         <label>Текущий<input name="old" type="password" required></label>
         <label>Новый<input name="nw" type="password" required minlength="6"></label>
         <button class="btn" type="submit">Изменить пароль</button>
-      </form>
+      </form>`}
     </div>
     <div class="label">Аккаунты на устройстве · ${names.length}</div>
     <div class="card">
@@ -600,7 +688,7 @@ function studyHTML(){
   if (!s.institution) {
     return `<div class="wrap"><div class="card"><div class="title" style="font-size:20px">Где ты учишься?</div>
       <div class="sub" style="margin:6px 0 12px">От этого зависит, как считаются оценки</div>
-      <div class="chips-row"><button class="chip-btn" data-act="inst" data-v="school">Школа</button><button class="chip-btn" data-act="inst" data-v="college">Колледж</button><button class="chip-btn" data-act="inst" data-v="university">Университет</button></div></div>`;
+      <div class="chips-row"><button class="chip-btn" data-act="inst" data-v="school">Школа</button><button class="chip-btn" data-act="inst" data-v="college">Колледж</button><button class="chip-btn" data-act="inst" data-v="university">Университет</button></div></div></div>`;
   }
   const today = todayStr();
   const sec = ui.studySection || "today";
@@ -818,6 +906,7 @@ function appView(){
   ${ui.sheet ? sheetHTML() : ""}
   ${ui.assistant ? asstHTML() : ""}
   ${ui.notify ? notifyHTML() : ""}
+  ${ui.migrate ? migrateHTML() : ""}
   <nav class="tabs">${tabs.map(([k, ic, name]) => `<button data-act="tab" data-v="${k}" class="${ui.tab === k ? "on" : ""}">${icon(ic)}<span>${name}</span></button>`).join("")}</nav>`;
 }
 
@@ -838,9 +927,32 @@ async function doAuth(f){
   db.session = login; ui.err = ""; ui.tab = "today"; save(); render();
 }
 
+async function doCloudAuth(f){
+  const email = f.email.value.trim().toLowerCase(), pass = f.pass.value;
+  const nick = ui.mode === "reg" ? f.nick.value.trim() : "";
+  if (ui.mode === "reg" && (nick.length < 2 || nick.length > 30)) { ui.err = "Ник: 2–30 символов"; return render(); }
+  if (pass.length < 8 || pass.length > 128) { ui.err = "Пароль: от 8 до 128 символов"; return render(); }
+  ui.err = ""; ui.busy = true; render();
+  try {
+    const res = ui.mode === "reg" ? await api.register(email, pass, nick) : await api.login(email, pass);
+    cloud = { email, accessToken: res.accessToken, refreshToken: res.refreshToken, accessExpiresAt: res.accessExpiresAt };
+    saveCloud(cloud);
+    if (!db.users[email]) db.users[email] = "cloud:";
+    if (!db.data[email]) db.data[email] = { notes: { study: "", sport: "" }, plans: [] };
+    const serverName = res.name || nick;
+    db.session = email; ui.tab = "today"; ui.busy = false; ui.mode = "login";
+    if (serverName && !prof().name) { prof().name = serverName; prof().updatedAt = nowIso(); }
+    persist(); render();
+    startSync();
+  } catch (e) {
+    ui.busy = false; ui.err = cloudErrorText(e); render();
+  }
+}
+
 async function changePassword(f){
   const login = db.session;
   if (String(db.users[login]).startsWith("social:")) { ui.pwdMsg = "Пароль не задан: вход через Google или Apple"; return render(); }
+  if (String(db.users[login]).startsWith("cloud:")) { ui.pwdMsg = "Смена пароля облачного аккаунта появится вместе с подтверждением email"; return render(); }
   if (db.users[login] !== await hash(login + ":" + f.old.value)) { ui.pwdMsg = "Текущий пароль неверный"; return render(); }
   if (f.nw.value.length < 6) { ui.pwdMsg = "Новый пароль: минимум 6 символов"; return render(); }
   db.users[login] = await hash(login + ":" + f.nw.value); ui.pwdMsg = ""; save(); render();
@@ -851,6 +963,18 @@ document.addEventListener("click", e => {
   if (!t) return;
   const a = t.dataset.act, v = t.dataset.v, id = t.dataset.id;
   if (a === "mode") { ui.mode = ui.mode === "reg" ? "login" : "reg"; ui.err = ""; return render(); }
+  if (a === "toggleauth") { ui.cloudAuth = !ui.cloudAuth; ui.err = ""; return render(); }
+  if (a === "syncnow") { if (sync) void sync.syncNow(); return; }
+  if (a === "migrate") {
+    const src = db.data[v];
+    if (src && isCloudSession()) {
+      db.data[db.session] = JSON.parse(JSON.stringify(src));
+      persist();
+      if (sync) { sync.uploadAll(me()); }
+    }
+    ui.migrate = null; return render();
+  }
+  if (a === "migrate-skip") { ui.migrate = null; return render(); }
   if (a === "social") {
     const login = v + "-profile";
     if (!db.data[login]) { db.users[login] = "social:" + v; db.data[login] = { notes: { study: "", sport: "" }, plans: [] }; }
@@ -935,8 +1059,16 @@ document.addEventListener("click", e => {
   if (a === "goal") { const p = prof(); p.goal = Math.max(1, Math.min(20, p.goal + Number(v))); p.updatedAt = nowIso(); save(); return render(); }
   if (a === "toggle") { const p = me().plans.find(x => x.id === id); if (p) { p.done = !p.done; p.updatedAt = nowIso(); save(); render(); } return; }
   if (a === "del") { const p = me().plans.find(x => x.id === id); if (p) { p.deletedAt = nowIso(); p.updatedAt = p.deletedAt; } save(); return render(); }
-  if (a === "logout") { db.session = null; ui.tab = "today"; save(); return render(); }
-  if (a === "switch") { db.session = v; ui.tab = "today"; save(); return render(); }
+  if (a === "logout") {
+    if (isCloudSession()) { cloudLogout(); return; }
+    db.session = null; ui.tab = "today"; save(); return render();
+  }
+  if (a === "switch") {
+    db.session = v; ui.tab = "today"; save();
+    if (sync) { sync.stop(); sync = null; }
+    if (isCloudSession()) startSync();
+    return render();
+  }
   if (a === "addaccount") { db.session = null; ui.mode = "reg"; ui.err = ""; return render(); }
   if (a === "export") {
     const text = buildExport(db.session, me(), new Date().toISOString());
@@ -955,7 +1087,10 @@ document.addEventListener("click", e => {
   }
   if (a === "delete") {
     if (ui.confirm !== "delete") { ui.confirm = "delete"; return render(); }
-    const l = db.session; delete db.users[l]; delete db.data[l]; db.session = null; ui.confirm = ""; save(); return render();
+    const wasCloud = isCloudSession();
+    const l = db.session; delete db.users[l]; delete db.data[l]; db.session = null; ui.confirm = "";
+    if (wasCloud) { cloudLogout(); return; }
+    save(); return render();
   }
 });
 
@@ -963,6 +1098,7 @@ document.addEventListener("submit", e => {
   e.preventDefault();
   const f = e.target;
   if (f.id === "auth") return doAuth(f);
+  if (f.id === "cloudauth") return doCloudAuth(f);
   if (f.id === "pwd") return changePassword(f);
   if (f.id === "asst") { asstSend(f.text.value); return render(); }
   if (f.id === "wk") { addSet(f); return; }
@@ -1089,6 +1225,7 @@ function checkReminders(){
 setInterval(checkReminders, 30000);
 render();
 checkReminders();
+if (isCloudSession()) startSync();
 })();
 </script>
 </body>

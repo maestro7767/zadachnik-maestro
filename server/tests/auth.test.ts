@@ -128,3 +128,26 @@ test("окно rate limit скользит по времени", () => {
   assert.equal(limiter.hit("ip", 700), false);
   assert.equal(limiter.hit("ip", 1001), true);
 });
+
+test("регистрация с ником: name сохраняется, возвращается в login и /me", async () => {
+  const { app } = makeApp();
+  const res = await app.inject({ method: "POST", url: "/auth/register", payload: { email: "nick@example.com", password: PASSWORD, name: "  Тим  " } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().name, "Тим");
+
+  const login = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "nick@example.com", password: PASSWORD } });
+  assert.equal(login.json().name, "Тим");
+
+  const me = await app.inject({ method: "GET", url: "/me", headers: { authorization: `Bearer ${login.json().accessToken}` } });
+  assert.equal(me.json().name, "Тим");
+});
+
+test("невалидный ник отклоняется, без ника регистрация работает", async () => {
+  const { app } = makeApp();
+  const bad = await app.inject({ method: "POST", url: "/auth/register", payload: { email: "a1@example.com", password: PASSWORD, name: "я" } });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().error, "invalid_name");
+  const ok = await app.inject({ method: "POST", url: "/auth/register", payload: { email: "a2@example.com", password: PASSWORD } });
+  assert.equal(ok.statusCode, 201);
+  assert.equal(ok.json().name, "");
+});

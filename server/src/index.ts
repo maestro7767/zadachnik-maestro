@@ -3,7 +3,7 @@ import { buildApp } from "./app.ts";
 
 /** Точка входа: база в файле (путь из env DB_PATH), порт из env PORT. */
 const db = openDb(process.env.DB_PATH ?? "maestro.db");
-const app = buildApp(db);
+const app = buildApp(db, { corsOrigin: process.env.CORS_ORIGIN });
 
 const port = Number(process.env.PORT ?? 3000);
 app

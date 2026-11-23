@@ -16,6 +16,7 @@ export function openDb(path = ":memory:"): Db {
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       pass_hash TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS tokens (
@@ -37,5 +38,10 @@ export function openDb(path = ":memory:"): Db {
     );
     CREATE INDEX IF NOT EXISTS idx_entities_pull ON entities(user_id, updated_at);
   `);
+  // Миграция: колонка name появилась после первых баз.
+  const cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "name")) {
+    db.exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+  }
   return db;
 }
