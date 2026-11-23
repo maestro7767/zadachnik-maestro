@@ -1,0 +1,20 @@
+{
+  "name": "maestro-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Сервер задачника «Маэстро»: аккаунты и синхронизация",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "start": "node --experimental-strip-types src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "argon2": "^0.43.1",
+    "fastify": "^5.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

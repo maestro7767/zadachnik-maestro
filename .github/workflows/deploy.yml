@@ -22,12 +22,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm --prefix server ci
+      - run: npm --prefix server test
+      - run: npm --prefix server run typecheck
 
   build:
     needs: test
@@ -36,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
