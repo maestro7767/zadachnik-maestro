@@ -1,0 +1,26 @@
+# Fly.io: запуск из папки server/ — fly launch использует этот файл.
+# Перед запуском: fly volumes create maestro_data --size 1
+app = "maestro-server"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[mounts]
+  source = "maestro_data"
+  destination = "/data"
+
+[env]
+  CORS_ORIGIN = "https://maestro7767.github.io"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  path = "/healthz"
+  interval = "30s"
+  timeout = "5s"

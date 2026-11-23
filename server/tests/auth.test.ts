@@ -151,3 +151,10 @@ test("невалидный ник отклоняется, без ника рег
   assert.equal(ok.statusCode, 201);
   assert.equal(ok.json().name, "");
 });
+
+test("healthz отвечает без авторизации", async () => {
+  const { app } = makeApp();
+  const res = await app.inject({ method: "GET", url: "/healthz" });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true });
+});

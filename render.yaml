@@ -1,0 +1,17 @@
+# Render Blueprint: один бесплатный веб-сервис + персистентный диск под SQLite.
+# Применение: dashboard.render.com → New → Blueprint → указать репозиторий.
+services:
+  - type: web
+    name: maestro-server
+    runtime: docker
+    dockerfilePath: server/Dockerfile
+    dockerContext: server
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: CORS_ORIGIN
+        value: https://maestro7767.github.io
+    disk:
+      name: maestro-data
+      mountPath: /data
+      sizeGB: 1

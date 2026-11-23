@@ -177,6 +177,8 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     return reply.send({ ok: true });
   });
 
+  app.get("/healthz", () => ({ ok: true }));
+
   app.get("/me", (req, reply) => {
     const userId = bearerUserId(req);
     if (!userId) {
