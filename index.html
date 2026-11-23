@@ -232,7 +232,7 @@ function save(){ persist(); if (sync && cloud && db.session === cloud.email) syn
 function me(){ return db.data[db.session]; }
 
 /* --- Облачная синхронизация --- */
-const SERVER_URL = (() => { try { return localStorage.getItem(KEY + "-server") || "http://localhost:3000"; } catch (e) { return "http://localhost:3000"; } })();
+const SERVER_URL = (() => { try { return localStorage.getItem(KEY + "-server") || "https://maestro-server.fly.dev"; } catch (e) { return "https://maestro-server.fly.dev"; } })();
 const api = createApi(SERVER_URL, fetch);
 
 function loadCloud(){ try { const raw = localStorage.getItem(KEY + "-cloud"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
