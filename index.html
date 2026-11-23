@@ -21,7 +21,7 @@ button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer;border:none;background:none;padding:0}
 input,textarea,select{width:100%;background:var(--field);border:none;border-radius:14px;padding:14px;font-size:17px;outline:none}
 input:focus,textarea:focus,select:focus{box-shadow:0 0 0 2px var(--accent)}
-textarea{resize:vertical;min-height:110px}
+textarea{resize:vertical;min-height:76px}
 label{display:block;font-size:13px;color:var(--mute);margin-bottom:12px}
 label>*:not(span){margin-top:6px}
 .wrap{max-width:520px;margin:0 auto;padding:0 18px}
@@ -51,7 +51,7 @@ label>*:not(span){margin-top:6px}
 .chip.c{color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
 .task .x{color:var(--mute);font-size:18px;padding:0 4px;align-self:flex-start}
 .label{font-size:13px;color:var(--mute);font-weight:600;margin:20px 4px 0;text-transform:uppercase;letter-spacing:.06em}
-.empty{color:var(--mute);text-align:center;padding:28px 12px;background:var(--card);border-radius:18px;margin-top:12px}
+.empty{color:var(--mute);text-align:center;padding:20px 12px;background:var(--card);border-radius:18px;margin-top:12px}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);background:var(--field);border-radius:14px;padding:4px;gap:4px}
 .seg button{padding:10px 6px;border-radius:11px;font-size:14px;font-weight:600;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:2px}
 .seg button.on{background:var(--accent);color:#fff}
@@ -149,7 +149,7 @@ button{transition:transform .12s ease,background .2s,color .2s,box-shadow .2s}
 button:active{transform:scale(.96)}
 .task{transition:transform .15s ease}
 .task:active{transform:scale(.985)}
-.head{background:radial-gradient(120% 100% at 0% 0%,color-mix(in srgb,var(--accent) 26%,transparent),transparent 65%);transition:background .5s ease}
+.head{background:radial-gradient(120% 100% at 0% 0%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 60%);transition:background .5s ease}
 .empty{display:flex;flex-direction:column;align-items:center;gap:6px;animation:fadeIn .4s ease both}
 .empty::before{content:"\2726";font-size:26px;color:var(--accent)}
 .tl{position:relative;padding-left:22px}
@@ -821,6 +821,7 @@ function sportHTML(){
     ? `<div class="card" style="text-align:center"><div class="mini">Отдых</div><div id="restTxt" style="font-size:34px;font-weight:800">${formatTime(remainingSec(ui.rest, Date.now()))}</div><button class="chip" data-act="rest-skip">Пропустить отдых</button></div>`
     : "";
   return `
+    <div class="wrap">
     <div class="label">Привычки</div><div class="card">${habitRows}</div>
     <div class="label">Тренировка</div>
     ${ui.workoutMsg ? `<div class="err">${esc(ui.workoutMsg)}</div>` : ""}
@@ -835,7 +836,8 @@ function sportHTML(){
     ${rest}
     <div class="label">Сегодня</div><div class="card">${todaySets}</div>
     <div class="label">Прогресс: ${esc(exName(selected))}</div>
-    <div class="card"><div class="wchart" style="height:120px">${bars}</div></div>`;
+    <div class="card"><div class="wchart" style="height:120px">${bars}</div></div>
+    </div>`;
 }
 
 function addSet(form){
