@@ -46,6 +46,14 @@ function fakeApi(): FakeApi {
       return { accessToken: "acc2", refreshToken: "ref2", accessExpiresAt: Date.now() + 900_000 };
     },
     async logout() {},
+    async getVapidKey() {
+      throw new Error("not used");
+    },
+    async pushSubscribe() {},
+    async pushUnsubscribe() {},
+    async pushTest() {
+      return { sent: 0, failed: 0, removed: 0 };
+    },
     async pull(_token: string, since: string | null) {
       api.pulled.push(since);
       return { now: NOW, changes: api.remoteChanges as never };

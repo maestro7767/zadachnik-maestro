@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "argon2": "^0.43.1",
-    "fastify": "^5.6.1"
+    "fastify": "^5.6.1",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/web-push": "^3.6.4",
     "typescript": "^5.6.0"
   }
 }

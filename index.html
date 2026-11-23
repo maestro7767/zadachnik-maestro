@@ -221,7 +221,7 @@ if (SpeechRecognitionApi) {
 let db = { users: {}, data: {}, session: null };
 db = loadAppData(localStorage, KEY);
 
-const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null };
+const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "" };
 
 function todayStr(){ return ymd(new Date()); }
 function nowIso(){ return new Date().toISOString(); }
@@ -299,6 +299,66 @@ function startSync(){
 function offerMigration(){
   const locals = Object.keys(db.data).filter(n => n !== db.session && !n.includes("@") && !n.endsWith("-profile"));
   if (locals.length > 0) { ui.migrate = locals; render(); }
+}
+
+/* --- Пуш-уведомления и офлайн (service worker) --- */
+const PUSH_SUPPORTED = "serviceWorker" in navigator && "PushManager" in window && !!window.Notification;
+let swReg = null;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then((r) => { swReg = r; refreshPush(); }).catch(() => {});
+}
+
+function b64ToBytes(b64){
+  const padded = (b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(padded);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+async function refreshPush(){
+  if (!PUSH_SUPPORTED || !swReg) { ui.pushOn = false; return; }
+  try { ui.pushOn = !!(await swReg.pushManager.getSubscription()); }
+  catch (e) { ui.pushOn = false; }
+  if (ui.tab === "profile") render();
+}
+
+async function pushSubscribeFlow(){
+  if (!swReg || !cloud) return;
+  ui.busy = true; ui.pushMsg = ""; render();
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { ui.pushMsg = "Уведомления запрещены — разреши их в настройках браузера"; return; }
+    const { publicKey } = await api.getVapidKey();
+    const sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+    await api.pushSubscribe(cloud.accessToken, sub.toJSON());
+    ui.pushOn = true; ui.pushMsg = "Пуши включены — проверь тестом ниже";
+  } catch (e) {
+    ui.pushMsg = (e instanceof ApiError && e.code === "push_not_configured") ? "Пуши пока не настроены на сервере" : "Не удалось включить пуши";
+  } finally { ui.busy = false; render(); }
+}
+
+async function pushUnsubscribeFlow(){
+  if (!swReg || !cloud) return;
+  ui.busy = true; ui.pushMsg = ""; render();
+  try {
+    const sub = await swReg.pushManager.getSubscription();
+    if (sub) {
+      await api.pushUnsubscribe(cloud.accessToken, sub.endpoint).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    }
+    ui.pushOn = false; ui.pushMsg = "Пуши выключены";
+  } finally { ui.busy = false; render(); }
+}
+
+async function pushTestFlow(){
+  if (!cloud) return;
+  ui.pushMsg = "Шлём тест…"; render();
+  try {
+    const r = await api.pushTest(cloud.accessToken);
+    ui.pushMsg = r.sent > 0 ? "Отправлено — жди уведомление 🎉" : "Нет активных подписок на этом аккаунте";
+  } catch (e) { ui.pushMsg = "Не удалось отправить тест"; }
+  render();
 }
 
 function migrateHTML(){
@@ -591,7 +651,10 @@ function profileView(){
       ${isCloudSession() ? `
       <div class="setrow"><span>Статус</span><span class="mini">${esc(syncStatusText())}</span></div>
       <div class="setrow"><span>Сервер</span><span class="mini">${esc(SERVER_URL)}</span></div>
-      <div class="setrow"><span>Синхронизировать сейчас</span><button class="chip" data-act="syncnow">Обновить</button></div>`
+      <div class="setrow"><span>Синхронизировать сейчас</span><button class="chip" data-act="syncnow">Обновить</button></div>
+      ${PUSH_SUPPORTED ? `<div class="setrow"><span>Пуш-уведомления</span><button class="chip" data-act="push-toggle">${ui.pushOn ? "Выключить" : "Включить"}</button></div>` : ""}
+      ${ui.pushOn ? `<div class="setrow"><span>Проверка пушей</span><button class="chip" data-act="push-test">Тест</button></div>` : ""}
+      ${ui.pushMsg ? `<div class="mini" style="padding:6px 0">${esc(ui.pushMsg)}</div>` : ""}`
       : `<div class="setrow"><span>Облако: планы на всех устройствах</span><button class="chip" data-act="addaccount">Войти по почте</button></div>`}
     </div>
     <div class="label">Пароль</div>
@@ -984,6 +1047,8 @@ document.addEventListener("click", e => {
   if (a === "mode") { ui.mode = ui.mode === "reg" ? "login" : "reg"; ui.err = ""; return render(); }
   if (a === "toggleauth") { ui.cloudAuth = !ui.cloudAuth; ui.err = ""; return render(); }
   if (a === "syncnow") { if (sync) void sync.syncNow(); return; }
+  if (a === "push-toggle") { if (ui.pushOn) void pushUnsubscribeFlow(); else void pushSubscribeFlow(); return; }
+  if (a === "push-test") { void pushTestFlow(); return; }
   if (a === "migrate") {
     const src = db.data[v];
     if (src && isCloudSession()) {

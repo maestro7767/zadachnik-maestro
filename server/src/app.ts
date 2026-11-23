@@ -6,6 +6,8 @@ import { hashPassword, verifyPassword } from "./passwords.ts";
 import { generateToken, tokenHash, ACCESS_TTL_MS, REFRESH_TTL_MS } from "./tokens.ts";
 import { createRateLimiter } from "./ratelimit.ts";
 import { MAX_PUSH_CHANGES, applyChange, normalizeIso, pullSince, validateChange } from "./sync.ts";
+import { createPushSender, removeSubscription, saveSubscription, sendToUser, validateSubscription } from "./push.ts";
+import type { PushSend, VapidConfig } from "./push.ts";
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 8;
@@ -27,6 +29,10 @@ export interface BuildOptions {
   rateLimit?: { limit: number; windowMs: number };
   /** Разрешённый источник CORS. По умолчанию "*" — API без cookie, авторизация по Bearer. */
   corsOrigin?: string;
+  /** VAPID-ключи для Web Push. Без них push-эндпоинты отвечают 503. */
+  vapid?: VapidConfig;
+  /** Отправка пуша — в тестах подменяется моком. */
+  pushSend?: PushSend;
 }
 
 interface TokenRow {
@@ -234,6 +240,44 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
       return { coll: v.change.coll, id: v.change.id, status: applyChange(db, userId, v.change) };
     });
     return reply.send({ now: new Date(nowMs()).toISOString(), results });
+  });
+
+  /* --- Web Push --- */
+  const vapid = opts.vapid ?? null;
+  const pushSend: PushSend | null = vapid ? (opts.pushSend ?? createPushSender(vapid)) : null;
+
+  // Публичный VAPID-ключ не секретный: клиенту он нужен для подписки.
+  app.get("/push/vapid", (req, reply) => {
+    if (!vapid) return reply.code(503).send({ error: "push_not_configured" });
+    return reply.send({ publicKey: vapid.publicKey });
+  });
+
+  app.post("/push/subscribe", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    if (!vapid) return reply.code(503).send({ error: "push_not_configured" });
+    const sub = validateSubscription((req.body as Record<string, unknown> | null)?.subscription);
+    if (!sub) return reply.code(400).send({ error: "invalid_subscription" });
+    saveSubscription(db, userId, sub);
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post("/push/unsubscribe", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const endpoint = (req.body as Record<string, unknown> | null)?.endpoint;
+    if (typeof endpoint === "string") removeSubscription(db, userId, endpoint);
+    return reply.send({ ok: true });
+  });
+
+  // Тестовый пуш: пользователь сразу видит, что уведомления доходят.
+  app.post("/push/test", async (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    if (!vapid || !pushSend) return reply.code(503).send({ error: "push_not_configured" });
+    const payload = JSON.stringify({ title: "Задачник Маэстро", body: "Пуши работают! 🎉", url: "./" });
+    const result = await sendToUser(db, pushSend, userId, payload);
+    return reply.send(result);
   });
 
   return app;

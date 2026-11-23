@@ -37,6 +37,14 @@ export function openDb(path = ":memory:"): Db {
       PRIMARY KEY (user_id, coll, id)
     );
     CREATE INDEX IF NOT EXISTS idx_entities_pull ON entities(user_id, updated_at);
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
   `);
   // Миграция: колонка name появилась после первых баз.
   const cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];

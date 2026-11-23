@@ -3,7 +3,18 @@ import { buildApp } from "./app.ts";
 
 /** Точка входа: база в файле (путь из env DB_PATH), порт из env PORT. */
 const db = openDb(process.env.DB_PATH ?? "maestro.db");
-const app = buildApp(db, { corsOrigin: process.env.CORS_ORIGIN });
+
+// VAPID-ключи приходят из env (fly secrets). Без них сервер работает, но пуши выключены.
+const vapid =
+  process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
+    ? {
+        subject: process.env.VAPID_SUBJECT ?? "mailto:admin@maestro-server.fly.dev",
+        publicKey: process.env.VAPID_PUBLIC_KEY,
+        privateKey: process.env.VAPID_PRIVATE_KEY,
+      }
+    : undefined;
+
+const app = buildApp(db, { corsOrigin: process.env.CORS_ORIGIN, ...(vapid ? { vapid } : {}) });
 
 const port = Number(process.env.PORT ?? 3000);
 app
