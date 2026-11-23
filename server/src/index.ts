@@ -1,5 +1,7 @@
 import { openDb } from "./db.ts";
 import { buildApp } from "./app.ts";
+import { createPushSender } from "./push.ts";
+import { runReminderPass } from "./reminders.ts";
 
 /** Точка входа: база в файле (путь из env DB_PATH), порт из env PORT. */
 const db = openDb(process.env.DB_PATH ?? "maestro.db");
@@ -14,7 +16,20 @@ const vapid =
       }
     : undefined;
 
-const app = buildApp(db, { corsOrigin: process.env.CORS_ORIGIN, ...(vapid ? { vapid } : {}) });
+const pushSend = vapid ? createPushSender(vapid) : undefined;
+const app = buildApp(db, {
+  corsOrigin: process.env.CORS_ORIGIN,
+  ...(vapid ? { vapid } : {}),
+  ...(pushSend ? { pushSend } : {}),
+});
+
+// Серверные напоминания: раз в минуту ищем планы с наступившим временем и шлём пуши,
+// даже когда приложение закрыто.
+if (pushSend) {
+  const pass = () => runReminderPass(db, pushSend, Date.now()).catch((e) => console.error("reminders:", e));
+  setInterval(pass, 60_000).unref();
+  void pass();
+}
 
 const port = Number(process.env.PORT ?? 3000);
 app

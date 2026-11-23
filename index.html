@@ -331,7 +331,7 @@ async function pushSubscribeFlow(){
     if (perm !== "granted") { ui.pushMsg = "Уведомления запрещены — разреши их в настройках браузера"; return; }
     const { publicKey } = await api.getVapidKey();
     const sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
-    await api.pushSubscribe(cloud.accessToken, sub.toJSON());
+    await api.pushSubscribe(cloud.accessToken, sub.toJSON(), new Date().getTimezoneOffset());
     ui.pushOn = true; ui.pushMsg = "Пуши включены — проверь тестом ниже";
   } catch (e) {
     ui.pushMsg = (e instanceof ApiError && e.code === "push_not_configured") ? "Пуши пока не настроены на сервере" : "Не удалось включить пуши";

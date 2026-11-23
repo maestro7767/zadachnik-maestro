@@ -45,11 +45,22 @@ export function openDb(path = ":memory:"): Db {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+    CREATE TABLE IF NOT EXISTS reminded (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      plan_id TEXT NOT NULL,
+      fired_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, plan_id)
+    );
   `);
   // Миграция: колонка name появилась после первых баз.
   const cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "name")) {
     db.exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+  }
+  // Миграция: часовой пояс устройства для серверных напоминаний.
+  const subCols = db.prepare("PRAGMA table_info(push_subscriptions)").all() as { name: string }[];
+  if (!subCols.some((c) => c.name === "tz_offset")) {
+    db.exec("ALTER TABLE push_subscriptions ADD COLUMN tz_offset INTEGER");
   }
   return db;
 }

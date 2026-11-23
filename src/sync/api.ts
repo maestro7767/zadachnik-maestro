@@ -51,7 +51,7 @@ export interface SyncApi {
   pull(accessToken: string, since: string | null): Promise<{ now: string; changes: SyncChangeDto[] }>;
   push(accessToken: string, changes: SyncChangeDto[]): Promise<{ now: string; results: PushResult[] }>;
   getVapidKey(): Promise<{ publicKey: string }>;
-  pushSubscribe(accessToken: string, subscription: unknown): Promise<void>;
+  pushSubscribe(accessToken: string, subscription: unknown, tzOffset?: number): Promise<void>;
   pushUnsubscribe(accessToken: string, endpoint: string): Promise<void>;
   pushTest(accessToken: string): Promise<{ sent: number; failed: number; removed: number }>;
 }
@@ -85,8 +85,8 @@ export function createApi(baseUrl: string, fetchFn: FetchLike): SyncApi {
     pull: (token, since) => call("GET", since ? `/sync/pull?since=${encodeURIComponent(since)}` : "/sync/pull", { token }),
     push: (token, changes) => call("POST", "/sync/push", { token, body: { changes } }),
     getVapidKey: () => call("GET", "/push/vapid"),
-    pushSubscribe: async (token, subscription) => {
-      await call("POST", "/push/subscribe", { token, body: { subscription } });
+    pushSubscribe: async (token, subscription, tzOffset) => {
+      await call("POST", "/push/subscribe", { token, body: { subscription, ...(tzOffset !== undefined ? { tzOffset } : {}) } });
     },
     pushUnsubscribe: async (token, endpoint) => {
       await call("POST", "/push/unsubscribe", { token, body: { endpoint } });

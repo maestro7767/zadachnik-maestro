@@ -258,7 +258,10 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     if (!vapid) return reply.code(503).send({ error: "push_not_configured" });
     const sub = validateSubscription((req.body as Record<string, unknown> | null)?.subscription);
     if (!sub) return reply.code(400).send({ error: "invalid_subscription" });
-    saveSubscription(db, userId, sub);
+    // Часовой пояс устройства (минуты, как getTimezoneOffset) — для серверных напоминаний.
+    const rawTz = (req.body as Record<string, unknown> | null)?.tzOffset;
+    const tzOffset = typeof rawTz === "number" && Number.isFinite(rawTz) && Math.abs(rawTz) <= 840 ? Math.round(rawTz) : null;
+    saveSubscription(db, userId, sub, tzOffset);
     return reply.code(201).send({ ok: true });
   });
 

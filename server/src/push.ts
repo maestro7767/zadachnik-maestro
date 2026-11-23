@@ -34,12 +34,12 @@ export function validateSubscription(raw: unknown): PushSubscriptionDto | null {
   return { endpoint: s.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } };
 }
 
-export function saveSubscription(db: Db, userId: string, sub: PushSubscriptionDto): void {
+export function saveSubscription(db: Db, userId: string, sub: PushSubscriptionDto, tzOffset: number | null = null): void {
   db.prepare(
-    `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`,
-  ).run(userId, sub.endpoint, sub.keys.p256dh, sub.keys.auth, new Date().toISOString());
+    `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at, tz_offset)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, tz_offset = excluded.tz_offset`,
+  ).run(userId, sub.endpoint, sub.keys.p256dh, sub.keys.auth, new Date().toISOString(), tzOffset);
 }
 
 export function removeSubscription(db: Db, userId: string, endpoint: string): void {
