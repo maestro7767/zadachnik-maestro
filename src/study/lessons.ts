@@ -10,5 +10,5 @@ export function isoWeekday(day: string): number {
 /** Занятия на дату, по времени начала. */
 export function lessonsOn(lessons: readonly Lesson[], day: string): Lesson[] {
   const wd = isoWeekday(day);
-  return lessons.filter((l) => l.weekday === wd).sort((a, b) => a.start.localeCompare(b.start));
+  return lessons.filter((l) => l.weekday === wd && !l.deletedAt).sort((a, b) => a.start.localeCompare(b.start));
 }

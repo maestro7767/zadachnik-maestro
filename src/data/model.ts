@@ -26,11 +26,15 @@ export interface Profile {
   cardPhoto?: string;
   /** Игровые элементы (уровни, испытания). false — выключены. */
   game?: boolean;
+  /** Момент последнего изменения профиля (ISO), для синхронизации. */
+  updatedAt?: string;
 }
 
 export interface Notes {
   study: string;
   sport: string;
+  /** Момент последнего изменения заметок (ISO), для синхронизации. */
+  updatedAt?: string;
 }
 
 /** Данные одного аккаунта на устройстве. */

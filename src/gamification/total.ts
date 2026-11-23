@@ -7,13 +7,14 @@ import type { Plan } from "../core/types.ts";
  * Всё считается из планов, поэтому отдельно хранить опыт не нужно.
  */
 export function totalXp(plans: readonly Plan[], today: string): number {
-  let xp = plans
+  const live = plans.filter((p) => !p.deletedAt);
+  let xp = live
     .filter((p) => p.done && p.date <= today)
     .reduce((sum, p) => sum + xpForPlan(p), 0);
-  const days = new Set(plans.filter((p) => p.date <= today).map((p) => p.date));
+  const days = new Set(live.filter((p) => p.date <= today).map((p) => p.date));
   for (const day of days) {
     for (const c of dailyChallenges(day)) {
-      if (evaluateChallenge(c, day, plans)) xp += c.xp;
+      if (evaluateChallenge(c, day, live)) xp += c.xp;
     }
   }
   return xp;

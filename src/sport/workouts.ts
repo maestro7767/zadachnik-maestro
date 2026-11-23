@@ -21,6 +21,10 @@ export interface WorkoutEntry {
   date: string;
   exerciseId: string;
   sets: WorkoutSet[];
+  /** Момент последнего изменения (ISO), для синхронизации. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) — tombstone для синхронизации. */
+  deletedAt?: string | null;
 }
 
 export const MAX_WEIGHT_KG = 500;
@@ -77,7 +81,7 @@ export interface ProgressPoint {
 export function exerciseProgress(entries: readonly WorkoutEntry[], exerciseId: string): ProgressPoint[] {
   const byDay = new Map<string, { maxWeight: number; volume: number }>();
   for (const e of entries) {
-    if (e.exerciseId !== exerciseId) continue;
+    if (e.exerciseId !== exerciseId || e.deletedAt) continue;
     const cur = byDay.get(e.date) ?? { maxWeight: 0, volume: 0 };
     for (const s of e.sets) {
       cur.maxWeight = Math.max(cur.maxWeight, s.weight);

@@ -14,14 +14,14 @@ export interface Challenge {
   readonly check: (c: ChallengeContext) => boolean;
 }
 
-const dayPlans = (ctx: ChallengeContext): Plan[] => ctx.plans.filter((p) => p.date === ctx.day);
+const dayPlans = (ctx: ChallengeContext): Plan[] => ctx.plans.filter((p) => p.date === ctx.day && !p.deletedAt);
 
 const CHALLENGES: readonly Challenge[] = [
   { id: "two", title: "Выполни 2 плана", xp: 15, check: (c) => dayPlans(c).filter((p) => p.done).length >= 2 },
   { id: "sport", title: "Выполни план в отделе «Спорт»", xp: 10, check: (c) => dayPlans(c).some((p) => p.done && p.cat === "sport") },
   { id: "study", title: "Выполни план в отделе «Учёба»", xp: 10, check: (c) => dayPlans(c).some((p) => p.done && p.cat === "study") },
   { id: "timed", title: "Выполни план с временем", xp: 10, check: (c) => dayPlans(c).some((p) => p.done && p.time !== "") },
-  { id: "tomorrow", title: "Запланируй план на завтра", xp: 10, check: (c) => c.plans.some((p) => p.date === addDays(c.day, 1)) },
+  { id: "tomorrow", title: "Запланируй план на завтра", xp: 10, check: (c) => c.plans.some((p) => p.date === addDays(c.day, 1) && !p.deletedAt) },
   { id: "all", title: "Закрой все планы дня", xp: 20, check: (c) => dayPlans(c).length > 0 && dayPlans(c).every((p) => p.done) },
 ];
 

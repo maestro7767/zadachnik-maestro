@@ -33,6 +33,7 @@ export function dueReminders(
     .filter(
       (p) =>
         !p.done &&
+        !p.deletedAt &&
         p.date === now.today &&
         p.time !== "" &&
         p.time <= now.hm &&

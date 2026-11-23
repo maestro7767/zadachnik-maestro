@@ -7,6 +7,10 @@ export interface Subject {
   name: string;
   /** Число неудачных попыток сдачи (колледж). */
   failedAttempts: number;
+  /** Момент последнего изменения (ISO), для синхронизации. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) — tombstone для синхронизации. */
+  deletedAt?: string | null;
 }
 
 /** Тип работы в школе: домашка и контрольная точка ×1, контрольная и экзамен ×2. */
@@ -19,6 +23,10 @@ export interface Assessment {
   kind: AssessmentKind;
   value: number;
   date: string;
+  /** Момент последнего изменения (ISO), для синхронизации. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) — tombstone для синхронизации. */
+  deletedAt?: string | null;
 }
 
 /** Занятие в расписании: weekday 1 — понедельник, 7 — воскресенье. Время HH:MM. */
@@ -28,6 +36,10 @@ export interface Lesson {
   start: string;
   end: string;
   subject: string;
+  /** Момент последнего изменения (ISO), для синхронизации. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) — tombstone для синхронизации. */
+  deletedAt?: string | null;
 }
 
 /** Дедлайн: что сдать и до какой даты (YYYY-MM-DD). */
@@ -35,6 +47,10 @@ export interface Deadline {
   id: string;
   title: string;
   due: string;
+  /** Момент последнего изменения (ISO), для синхронизации. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) — tombstone для синхронизации. */
+  deletedAt?: string | null;
 }
 
 /** Карточка для интервального повторения. */
@@ -46,6 +62,10 @@ export interface StudyCard {
   box: number;
   /** Дата, с которой карточку пора повторить (YYYY-MM-DD). */
   due: string;
+  /** Момент последнего изменения (ISO), для синхронизации. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) — tombstone для синхронизации. */
+  deletedAt?: string | null;
 }
 
 /** Учебные данные аккаунта. Всё хранится на устройстве. */
@@ -59,6 +79,8 @@ export interface StudyData {
   lessons: Lesson[];
   deadlines: Deadline[];
   cards: StudyCard[];
+  /** Момент последнего изменения скалярных полей (заведение, курс, посещаемость), для синхронизации. */
+  updatedAt?: string;
 }
 
 export function emptyStudy(): StudyData {

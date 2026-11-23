@@ -224,6 +224,7 @@ db = loadAppData(localStorage, KEY);
 const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "" };
 
 function todayStr(){ return ymd(new Date()); }
+function nowIso(){ return new Date().toISOString(); }
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function save(){ try { saveAppData(localStorage, KEY, db); } catch (e) {} }
@@ -320,7 +321,7 @@ function dayList(day){
 }
 
 function statsBlock(){
-  const all = me().plans, done = all.filter(p => p.done).length;
+  const all = me().plans.filter(p => !p.deletedAt), done = all.filter(p => p.done).length;
   return `<div class="stats3"><div><b>${all.length}</b><small>Всего</small></div><div><b>${done}</b><small>Выполнено</small></div><div><b>${streakWithFreeze(me().plans, todayStr())}🔥</b><small>Серия дней</small></div></div>`;
 }
 
@@ -330,7 +331,7 @@ function weekChartHTML(){
   const selIdx = (t0.getDay() + 6) % 7;
   const monday = addDays(ui.anchor, -selIdx);
   const counts = [];
-  for (let i = 0; i < 7; i++) counts.push(me().plans.filter(x => x.date === addDays(monday, i) && x.done).length);
+  for (let i = 0; i < 7; i++) counts.push(me().plans.filter(x => x.date === addDays(monday, i) && x.done && !x.deletedAt).length);
   const max = Math.max(1, ...counts);
   const bars = counts.map((n, i) => `<div class="wcol ${i === selIdx ? "now" : ""}"><div class="wbar"><i style="height:${Math.max(6, Math.round(n / max * 100))}%"></i></div><small>${WDS[i]}</small></div>`).join("");
   return `<div class="label">Неделя</div><div class="card"><div class="wchart">${bars}</div></div>`;
@@ -384,7 +385,7 @@ function gameHTML(p){
 
 function todayView(){
   const p = prof();
-  const day = me().plans.filter(x => x.date === ui.anchor);
+  const day = me().plans.filter(x => x.date === ui.anchor && !x.deletedAt);
   const done = day.filter(x => x.done).length;
   const pct = day.length ? Math.round(done / day.length * 100) : 0;
   return `
@@ -410,11 +411,11 @@ function calendarView(){
   for (let i = 0; i < offset; i++) cells += `<span></span>`;
   for (let d = 1; d <= daysIn; d++) {
     const s = y + "-" + pad(m + 1) + "-" + pad(d);
-    const has = plans.some(x => x.date === s);
+    const has = plans.some(x => x.date === s && !x.deletedAt);
     const cls = (s === ui.anchor ? "sel " : "") + (s === todayStr() ? "today" : "");
     cells += `<button data-act="pickday" data-v="${s}" class="${cls}">${d}${has ? `<span class="dot"></span>` : ""}</button>`;
   }
-  const day = plans.filter(x => x.date === ui.anchor);
+  const day = plans.filter(x => x.date === ui.anchor && !x.deletedAt);
   return `
   <div class="head"><div class="title">Календарь</div><button class="plus" data-act="openadd" data-v="${ui.anchor}">+</button></div>
   <div class="wrap">
@@ -428,7 +429,7 @@ function calendarView(){
 }
 
 function sectionView(cat){
-  const plans = me().plans.filter(p => p.cat === cat).sort((a, b) => a.date.localeCompare(b.date));
+  const plans = me().plans.filter(p => p.cat === cat && !p.deletedAt).sort((a, b) => a.date.localeCompare(b.date));
   const c = CATS[cat];
   return `
   <div class="head"><div><div class="title">${c.name}</div><div class="sub">${plans.length} планов</div></div>
@@ -524,7 +525,7 @@ function profileView(){
 }
 
 function notifyHTML(){
-  const pending = me().plans.filter(x => x.date === todayStr() && !x.done).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+  const pending = me().plans.filter(x => x.date === todayStr() && !x.done && !x.deletedAt).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
   const items = pending.length
     ? pending.map(p => `<div class="setrow"><span>${esc(p.text)}</span><span class="mini">${p.time || "без времени"}</span></div>`).join("")
     : `<div class="empty" style="margin:0">Все планы на сегодня выполнены</div>`;
@@ -547,7 +548,7 @@ function asstSend(text){
   const a = ui.asst, t = (text || "").trim();
   if (!a || !t || a.stage === "done") return;
   const r = parseWhen(t, todayStr());
-  me().plans.push({ id: uid(), cat: a.cat, text: r.text || t, date: r.date, time: r.time, done: false });
+  me().plans.push({ id: uid(), cat: a.cat, text: r.text || t, date: r.date, time: r.time, done: false, updatedAt: nowIso(), deletedAt: null });
   ui.anchor = r.date;
   save();
   a.count++;
@@ -609,16 +610,16 @@ function studyHTML(){
   const cancel = `<button class="chip" type="button" data-act="sform" data-v="${form}">Отмена</button>`;
   const msg = ui.studyMsg ? `<div class="err">${esc(ui.studyMsg)}</div>` : "";
   const isSchool = s.institution === "school";
-  const sortedLessons = [...s.lessons].sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+  const sortedLessons = [...s.lessons].filter((l) => !l.deletedAt).sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
   const lessonsToday = lessonsOn(s.lessons, today).map((l) => `<div class="setrow"><span>${esc(l.subject)}</span><span class="mini">${l.start}–${l.end}</span></div>`).join("") || `<div class="mini">Сегодня занятий нет</div>`;
   const deadlineRows = (list) => list.map((d) => `<div class="setrow"><span>${esc(d.title)}</span><span class="mini">${daysLeftText(d.due, today)}</span></div>`).join("") || `<div class="mini">Ближайших сроков нет</div>`;
-  const subjectRows = s.subjects.map((sub) => {
-    const items = s.assessments.filter((a) => a.subjectId === sub.id);
+  const subjectRows = s.subjects.filter((sub) => !sub.deletedAt).map((sub) => {
+    const items = s.assessments.filter((a) => a.subjectId === sub.id && !a.deletedAt);
     const r = subjectResultView(s.institution, items, s.attendance, s.secondYear, sub.failedAttempts);
     const fail = s.institution === "college" && r.kind === "next" ? `<div style="text-align:right;margin:-4px 0 8px"><button class="chip" data-act="fail" data-id="${sub.id}">+ неудачная пересдача</button></div>` : "";
     return `<div class="setrow"><span>${esc(sub.name)}</span><span class="mini">${esc(r.text)}</span></div>${fail}`;
   }).join("") || `<div class="mini">Добавь первый предмет</div>`;
-  const subjectOpts = s.subjects.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+  const subjectOpts = s.subjects.filter((x) => !x.deletedAt).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
   const pomo = ui.pomoStart ? pomodoroAt(Math.floor((Date.now() - ui.pomoStart) / 1000)) : null;
   const pomoBlock = pomo
     ? `<div class="card" style="text-align:center"><div class="mini">${phaseLabel(pomo.phase)}</div><div id="pomoTxt" class="pomo-time">${formatTime(pomo.remainingSec)}</div><div class="row" style="justify-content:center;margin-top:10px"><button class="chip" data-act="pomo-skip">Пропустить</button><button class="chip" data-act="pomo-stop">Стоп</button></div></div>`
@@ -715,12 +716,12 @@ function sportHTML(){
   const habits = habitsOf();
   const workouts = me().workouts || [];
   const selected = ui.exercise || DEFAULT_EXERCISES[0].id;
-  const habitRows = habits.map((h) => {
+  const habitRows = habits.filter((h) => !h.deletedAt).map((h) => {
     const done = h.doneDays.includes(today);
     return `<div class="setrow"><button class="check" data-act="habit" data-id="${h.id}" aria-pressed="${done}" style="${done ? "background:var(--green);border-color:var(--green);color:#fff" : ""}">${done ? "✓" : ""}</button><span class="grow">${esc(h.name)}</span><span class="mini">серия ${habitStreak(h.doneDays, today)}</span></div>`;
   }).join("");
   const options = DEFAULT_EXERCISES.map((e) => `<option value="${e.id}" ${e.id === selected ? "selected" : ""}>${esc(e.name)}</option>`).join("");
-  const todaySets = workouts.filter((w) => w.date === today).map((w) => {
+  const todaySets = workouts.filter((w) => !w.deletedAt && w.date === today).map((w) => {
     const s = w.sets[0];
     return `<div class="setrow"><span>${esc(exName(w.exerciseId))}</span><span class="mini">${s ? s.weight + " кг × " + s.reps : ""}</span></div>`;
   }).join("") || `<div class="mini">Сегодня подходов пока нет</div>`;
@@ -756,7 +757,7 @@ function addSet(form){
     return render();
   }
   const list = me().workouts || (me().workouts = []);
-  list.push({ id: uid(), date: todayStr(), exerciseId: form.ex.value, sets: [set] });
+  list.push({ id: uid(), date: todayStr(), exerciseId: form.ex.value, sets: [set], updatedAt: nowIso(), deletedAt: null });
   ui.exercise = form.ex.value;
   ui.workoutMsg = "";
   ui.rest = { startedAtMs: Date.now(), durationSec: 90 };
@@ -866,17 +867,17 @@ document.addEventListener("click", e => {
     if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
     ui.calMonth = { y, m }; return render();
   }
-  if (a === "cardbg") { prof().cardPreset = v; save(); return render(); }
+  if (a === "cardbg") { const p = prof(); p.cardPreset = v; p.updatedAt = nowIso(); save(); return render(); }
   if (a === "pickcardbg") { const f = document.getElementById("cbf"); if (f) f.click(); return; }
   if (a === "pickavatar") { const f = document.getElementById("avf"); if (f) f.click(); return; }
-  if (a === "removeavatar") { delete prof().avatar; save(); return render(); }
+  if (a === "removeavatar") { const p = prof(); delete p.avatar; p.updatedAt = nowIso(); save(); return render(); }
   if (a === "editprofile") { ui.editProfile = !ui.editProfile; return render(); }
   if (a === "accent") {
     const need = ACCENT_LEVELS[ACCENTS.indexOf(v)] ?? 1;
     if (levelFromXp(totalXp(me().plans, todayStr())) < need) { ui.colorMsg = "Этот цвет откроется на уровне " + need + ". Сейчас уровень " + accentLevel() + "."; return render(); }
-    prof().accent = v; ui.colorMsg = ""; save(); return render();
+    const p2 = prof(); p2.accent = v; p2.updatedAt = nowIso(); ui.colorMsg = ""; save(); return render();
   }
-  if (a === "theme") { prof().theme = v; try { localStorage.setItem(KEY + "-theme", v); } catch (er) {} save(); return render(); }
+  if (a === "theme") { const p = prof(); p.theme = v; p.updatedAt = nowIso(); try { localStorage.setItem(KEY + "-theme", v); } catch (er) {} save(); return render(); }
   if (a === "asst-open") { ui.asst = asstNew("life"); ui.assistant = true; return render(); }
   if (a === "asst-close") { ui.assistant = false; return render(); }
   if (a === "asst-cat") { ui.asst.cat = v; return render(); }
@@ -889,25 +890,25 @@ document.addEventListener("click", e => {
     return render();
   }
   if (a === "toggle-notify") {
-    const p = prof(); p.notify = !p.notify; save();
+    const p = prof(); p.notify = !p.notify; p.updatedAt = nowIso(); save();
     if (p.notify && window.Notification && Notification.permission === "default") Notification.requestPermission();
     return render();
   }
   if (a === "ssec") { ui.studySection = v; ui.studyForm = null; ui.studyMsg = ""; return render(); }
   if (a === "sform") { ui.studyForm = ui.studyForm === v ? null : v; ui.studyMsg = ""; return render(); }
-  if (a === "inst") { studyOf().institution = v; ui.studyMsg = ""; save(); return render(); }
-  if (a === "inst-reset") { studyOf().institution = null; save(); return render(); }
-  if (a === "second") { const s = studyOf(); s.secondYear = !s.secondYear; save(); return render(); }
+  if (a === "inst") { const s = studyOf(); s.institution = v; s.updatedAt = nowIso(); ui.studyMsg = ""; save(); return render(); }
+  if (a === "inst-reset") { const s = studyOf(); s.institution = null; s.updatedAt = nowIso(); save(); return render(); }
+  if (a === "second") { const s = studyOf(); s.secondYear = !s.secondYear; s.updatedAt = nowIso(); save(); return render(); }
   if (a === "fail") {
     const sub = studyOf().subjects.find((x) => x.id === id);
-    if (sub) { sub.failedAttempts = (sub.failedAttempts || 0) + 1; save(); }
+    if (sub) { sub.failedAttempts = (sub.failedAttempts || 0) + 1; sub.updatedAt = nowIso(); save(); }
     return render();
   }
   if (a === "card-show") { ui.cardShown = id; return render(); }
   if (a === "card-good" || a === "card-bad") {
     const s = studyOf();
     const i = s.cards.findIndex((c) => c.id === id);
-    if (i >= 0) s.cards[i] = reviewCard(s.cards[i], a === "card-good", todayStr());
+    if (i >= 0) s.cards[i] = { ...reviewCard(s.cards[i], a === "card-good", todayStr()), updatedAt: nowIso() };
     ui.cardShown = null; save(); return render();
   }
   if (a === "pomo-start") { ui.pomoStart = Date.now(); startPomoTicker(); return render(); }
@@ -922,18 +923,18 @@ document.addEventListener("click", e => {
   }
   if (a === "habit") {
     const h = habitsOf().find((x) => x.id === id);
-    if (h) { h.doneDays = toggleDay(h.doneDays, todayStr()); save(); render(); }
+    if (h) { h.doneDays = toggleDay(h.doneDays, todayStr()); h.updatedAt = nowIso(); save(); render(); }
     return;
   }
   if (a === "rest-skip") {
     if (ui.rest) { ui.rest = skipRest(ui.rest, Date.now()); render(); }
     return;
   }
-  if (a === "toggle-game") { const p = prof(); p.game = p.game === false; save(); return render(); }
-  if (a === "toggle-stats") { const p = prof(); p.showStats = !p.showStats; save(); return render(); }
-  if (a === "goal") { const p = prof(); p.goal = Math.max(1, Math.min(20, p.goal + Number(v))); save(); return render(); }
-  if (a === "toggle") { const p = me().plans.find(x => x.id === id); if (p) { p.done = !p.done; save(); render(); } return; }
-  if (a === "del") { me().plans = me().plans.filter(x => x.id !== id); save(); return render(); }
+  if (a === "toggle-game") { const p = prof(); p.game = p.game === false; p.updatedAt = nowIso(); save(); return render(); }
+  if (a === "toggle-stats") { const p = prof(); p.showStats = !p.showStats; p.updatedAt = nowIso(); save(); return render(); }
+  if (a === "goal") { const p = prof(); p.goal = Math.max(1, Math.min(20, p.goal + Number(v))); p.updatedAt = nowIso(); save(); return render(); }
+  if (a === "toggle") { const p = me().plans.find(x => x.id === id); if (p) { p.done = !p.done; p.updatedAt = nowIso(); save(); render(); } return; }
+  if (a === "del") { const p = me().plans.find(x => x.id === id); if (p) { p.deletedAt = nowIso(); p.updatedAt = p.deletedAt; } save(); return render(); }
   if (a === "logout") { db.session = null; ui.tab = "today"; save(); return render(); }
   if (a === "switch") { db.session = v; ui.tab = "today"; save(); return render(); }
   if (a === "addaccount") { db.session = null; ui.mode = "reg"; ui.err = ""; return render(); }
@@ -950,7 +951,7 @@ document.addEventListener("click", e => {
   if (a === "import-pick") { const f = document.getElementById("impf"); if (f) f.click(); return; }
   if (a === "wipe") {
     if (ui.confirm !== "wipe") { ui.confirm = "wipe"; return render(); }
-    me().plans = []; me().notes = { study: "", sport: "" }; ui.confirm = ""; save(); return render();
+    const t = nowIso(); for (const p of me().plans) { if (!p.deletedAt) { p.deletedAt = t; p.updatedAt = t; } } me().notes = { study: "", sport: "", updatedAt: t }; ui.confirm = ""; save(); return render();
   }
   if (a === "delete") {
     if (ui.confirm !== "delete") { ui.confirm = "delete"; return render(); }
@@ -966,33 +967,33 @@ document.addEventListener("submit", e => {
   if (f.id === "asst") { asstSend(f.text.value); return render(); }
   if (f.id === "wk") { addSet(f); return; }
   if (["subj", "asm", "att", "dl", "les", "card"].includes(f.id) && !ui.studyMsg) ui.studyForm = null;
-  if (f.id === "subj") { studyOf().subjects.push({ id: uid(), name: f.name.value.trim(), failedAttempts: 0 }); save(); return render(); }
+  if (f.id === "subj") { studyOf().subjects.push({ id: uid(), name: f.name.value.trim(), failedAttempts: 0, updatedAt: nowIso(), deletedAt: null }); save(); return render(); }
   if (f.id === "asm") {
     const s = studyOf();
     const v = Number(f.value.value);
     const lo = s.institution === "school" ? 2 : 0, hi = s.institution === "school" ? 5 : 100;
     if (!(v >= lo && v <= hi)) { ui.studyMsg = "Значение должно быть от " + lo + " до " + hi; return render(); }
     if (s.institution === "college") {
-      const sum = s.assessments.filter((a) => a.subjectId === f.sub.value).reduce((t, a) => t + a.value, 0) + v;
+      const sum = s.assessments.filter((a) => a.subjectId === f.sub.value && !a.deletedAt).reduce((t, a) => t + a.value, 0) + v;
       if (sum > 100) { ui.studyMsg = "Сумма баллов по предмету не больше 100"; return render(); }
     }
-    s.assessments.push({ id: uid(), subjectId: f.sub.value, kind: f.kind.value, value: v, date: todayStr() });
+    s.assessments.push({ id: uid(), subjectId: f.sub.value, kind: f.kind.value, value: v, date: todayStr(), updatedAt: nowIso(), deletedAt: null });
     ui.studyMsg = ""; save(); return render();
   }
-  if (f.id === "att") { studyOf().attendance = Math.min(100, Math.max(0, Number(f.pct.value) || 0)); save(); return render(); }
-  if (f.id === "dl") { studyOf().deadlines.push({ id: uid(), title: f.title.value.trim(), due: f.due.value }); save(); return render(); }
+  if (f.id === "att") { const s = studyOf(); s.attendance = Math.min(100, Math.max(0, Number(f.pct.value) || 0)); s.updatedAt = nowIso(); save(); return render(); }
+  if (f.id === "dl") { studyOf().deadlines.push({ id: uid(), title: f.title.value.trim(), due: f.due.value, updatedAt: nowIso(), deletedAt: null }); save(); return render(); }
   if (f.id === "les") {
-    studyOf().lessons.push({ id: uid(), weekday: Number(f.wd.value), start: f.start.value, end: f.end.value, subject: f.subject.value.trim() });
+    studyOf().lessons.push({ id: uid(), weekday: Number(f.wd.value), start: f.start.value, end: f.end.value, subject: f.subject.value.trim(), updatedAt: nowIso(), deletedAt: null });
     save(); return render();
   }
-  if (f.id === "card") { studyOf().cards.push({ id: uid(), front: f.front.value.trim(), back: f.back.value.trim(), box: 0, due: todayStr() }); save(); return render(); }
-  if (f.id === "profile") { const p = prof(); p.name = f.name.value.trim(); p.bio = f.bio.value.trim(); ui.editProfile = false; save(); return render(); }
+  if (f.id === "card") { studyOf().cards.push({ id: uid(), front: f.front.value.trim(), back: f.back.value.trim(), box: 0, due: todayStr(), updatedAt: nowIso(), deletedAt: null }); save(); return render(); }
+  if (f.id === "profile") { const p = prof(); p.name = f.name.value.trim(); p.bio = f.bio.value.trim(); p.updatedAt = nowIso(); ui.editProfile = false; save(); return render(); }
   if (f.id === "add") {
     const text = f.text.value.trim();
     if (!text) return;
     const cat = f.dataset.cat === "plan" ? f.cat.value : f.dataset.cat;
     const date = f.date.value || todayStr();
-    me().plans.push({ id: uid(), cat, text, date, time: f.time.value || "", done: false });
+    me().plans.push({ id: uid(), cat, text, date, time: f.time.value || "", done: false, updatedAt: nowIso(), deletedAt: null });
     ui.anchor = date; ui.sheet = null; save(); render();
   }
 });
@@ -1009,7 +1010,7 @@ document.addEventListener("change", e => {
       c.width = size; c.height = size;
       const m = Math.min(img.width, img.height);
       c.getContext("2d").drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, size, size);
-      prof().avatar = c.toDataURL("image/jpeg", 0.85);
+      const p = prof(); p.avatar = c.toDataURL("image/jpeg", 0.85); p.updatedAt = nowIso();
       save(); render();
     };
     img.src = reader.result;
@@ -1029,7 +1030,7 @@ document.addEventListener("change", e => {
       const c = document.createElement("canvas");
       c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      prof().cardPhoto = c.toDataURL("image/jpeg", 0.8);
+      const p = prof(); p.cardPhoto = c.toDataURL("image/jpeg", 0.8); p.updatedAt = nowIso();
       prof().cardPreset = "photo";
       save(); render();
     };
@@ -1062,8 +1063,8 @@ document.addEventListener("change", e => {
 
 document.addEventListener("input", e => {
   const d = e.target.dataset || {};
-  if (d.note && db.session) { me().notes[d.note] = e.target.value; save(); }
-  if (d.set && db.session) { prof()[d.set] = e.target.value; save(); }
+  if (d.note && db.session) { me().notes[d.note] = e.target.value; me().notes.updatedAt = nowIso(); save(); }
+  if (d.set && db.session) { const p = prof(); p[d.set] = e.target.value; p.updatedAt = nowIso(); save(); }
 });
 
 if (window.matchMedia) {

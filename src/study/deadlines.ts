@@ -14,6 +14,6 @@ export function daysLeft(due: string, today: string): number {
 export function upcomingDeadlines(deadlines: readonly Deadline[], today: string, days = 14): Deadline[] {
   const end = addDays(today, days);
   return deadlines
-    .filter((d) => d.due >= today && d.due <= end)
+    .filter((d) => !d.deletedAt && d.due >= today && d.due <= end)
     .sort((a, b) => a.due.localeCompare(b.due));
 }

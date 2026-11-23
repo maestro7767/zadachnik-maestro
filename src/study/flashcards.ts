@@ -19,7 +19,7 @@ export function reviewCard(card: StudyCard, remembered: boolean, today: string):
 
 /** Карточки, которые пора повторить сегодня (срок наступил). */
 export function dueCards(cards: readonly StudyCard[], today: string): StudyCard[] {
-  return cards.filter((c) => c.due <= today).sort((a, b) => a.due.localeCompare(b.due));
+  return cards.filter((c) => !c.deletedAt && c.due <= today).sort((a, b) => a.due.localeCompare(b.due));
 }
 
 export { BOX_INTERVALS_DAYS };

@@ -9,6 +9,10 @@ export interface Plan {
   readonly date: string;
   readonly time: string;
   readonly done: boolean;
+  /** Момент последнего изменения (ISO). Появился в версии для синхронизации; отсутствует у старых данных. */
+  updatedAt?: string;
+  /** Момент удаления (ISO) или null/отсутствует, если план жив. Tombstone нужен для синхронизации. */
+  deletedAt?: string | null;
 }
 
 export const CATEGORY_NAMES: Readonly<Record<Category, string>> = {

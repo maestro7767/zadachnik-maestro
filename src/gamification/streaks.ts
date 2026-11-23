@@ -30,7 +30,7 @@ function weekKey(day: string): string {
  * Если сегодня ещё ничего не выполнено, отсчёт идёт от вчера.
  */
 export function streakWithFreeze(plans: readonly Plan[], today: string): number {
-  const doneOn = (day: string): boolean => plans.some((p) => p.date === day && p.done);
+  const doneOn = (day: string): boolean => plans.some((p) => p.date === day && p.done && !p.deletedAt);
   let day = doneOn(today) ? today : addDays(today, -1);
   let n = 0;
   const freezeUsedInWeek = new Set<string>();
