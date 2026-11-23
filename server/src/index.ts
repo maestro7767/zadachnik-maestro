@@ -17,10 +17,21 @@ const vapid =
     : undefined;
 
 const pushSend = vapid ? createPushSender(vapid) : undefined;
+
+// LLM для помощника: ключ только на сервере. Без него клиент использует локальную эвристику.
+const ai = process.env.AI_API_KEY
+  ? {
+      apiKey: process.env.AI_API_KEY,
+      baseUrl: process.env.AI_BASE_URL ?? "https://api.moonshot.ai/v1",
+      model: process.env.AI_MODEL ?? "moonshot-v1-8k",
+    }
+  : undefined;
+
 const app = buildApp(db, {
   corsOrigin: process.env.CORS_ORIGIN,
   ...(vapid ? { vapid } : {}),
   ...(pushSend ? { pushSend } : {}),
+  ...(ai ? { ai } : {}),
 });
 
 // Серверные напоминания: раз в минуту ищем планы с наступившим временем и шлём пуши,

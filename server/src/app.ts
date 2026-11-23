@@ -8,6 +8,8 @@ import { createRateLimiter } from "./ratelimit.ts";
 import { MAX_PUSH_CHANGES, applyChange, normalizeIso, pullSince, validateChange } from "./sync.ts";
 import { createPushSender, removeSubscription, saveSubscription, sendToUser, validateSubscription } from "./push.ts";
 import type { PushSend, VapidConfig } from "./push.ts";
+import { decomposeWithLLM } from "./ai.ts";
+import type { AiConfig, ChatFetch } from "./ai.ts";
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 8;
@@ -33,6 +35,10 @@ export interface BuildOptions {
   vapid?: VapidConfig;
   /** Отправка пуша — в тестах подменяется моком. */
   pushSend?: PushSend;
+  /** Настройки LLM для разложения целей. Без них /ai/decompose отвечает 503. */
+  ai?: AiConfig;
+  /** fetch для вызова LLM — в тестах подменяется. */
+  aiFetch?: ChatFetch;
 }
 
 interface TokenRow {
@@ -281,6 +287,49 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     const payload = JSON.stringify({ title: "Задачник Маэстро", body: "Пуши работают! 🎉", url: "./" });
     const result = await sendToUser(db, pushSend, userId, payload);
     return reply.send(result);
+  });
+
+  /* --- ИИ-помощник: разложение цели на шаги --- */
+  const ai = opts.ai ?? null;
+  const aiFetch = opts.aiFetch ?? (fetch as unknown as ChatFetch);
+  // Отдельный строгий лимит: вызовы LLM стоят денег. 5 запросов в минуту на пользователя.
+  const aiLimiter = createRateLimiter(5, 60_000);
+
+  app.post("/ai/decompose", async (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    if (!ai) return reply.code(503).send({ error: "ai_not_configured" });
+    if (!aiLimiter.hit(userId, nowMs())) return reply.code(429).send({ error: "rate_limited" });
+
+    const body = req.body as Record<string, unknown> | null;
+    const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
+    if (goal.length < 3 || goal.length > 300) return reply.code(400).send({ error: "invalid_goal" });
+    const startDate = typeof body?.startDate === "string" ? body.startDate : "";
+    const endDate = typeof body?.endDate === "string" ? body.endDate : "";
+    const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
+    if (!DATE_RX.test(startDate) || !DATE_RX.test(endDate) || startDate > endDate) {
+      return reply.code(400).send({ error: "invalid_dates" });
+    }
+    const spanDays = (Date.parse(endDate) - Date.parse(startDate)) / 86_400_000;
+    if (spanDays > 90) return reply.code(400).send({ error: "range_too_long" });
+
+    // Нагрузка по дням: только валидные записи, не больше сотни.
+    const load: Record<string, number> = {};
+    const rawLoad = body?.load;
+    if (typeof rawLoad === "object" && rawLoad !== null) {
+      for (const [k, v] of Object.entries(rawLoad as Record<string, unknown>)) {
+        if (DATE_RX.test(k) && typeof v === "number" && v > 0 && v < 100 && Object.keys(load).length < 100) {
+          load[k] = Math.round(v);
+        }
+      }
+    }
+
+    try {
+      const steps = await decomposeWithLLM(ai, { goal, startDate, endDate, load }, aiFetch);
+      return reply.send({ steps });
+    } catch {
+      return reply.code(502).send({ error: "ai_failed" });
+    }
   });
 
   return app;

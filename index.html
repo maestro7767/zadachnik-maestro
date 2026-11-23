@@ -189,6 +189,8 @@ import { pomodoroAt, skipPomodoro } from "./src/study/pomodoro.ts";
 import { reviewCard, dueCards } from "./src/study/flashcards.ts";
 import { subjectResultView } from "./src/study/journal.ts";
 import { parseWhen } from "./src/assistant/parse.ts";
+import { decomposeLocally, loadByDate } from "./src/assistant/decompose.ts";
+import { unfinishedPlans, shouldOfferCarryover, movedPlans } from "./src/assistant/carryover.ts";
 import { createApi, ApiError } from "./src/sync/api.ts";
 import { SyncEngine } from "./src/sync/engine.ts";
 import { applyRemoteChanges } from "./src/sync/merge.ts";
@@ -221,7 +223,7 @@ if (SpeechRecognitionApi) {
 let db = { users: {}, data: {}, session: null };
 db = loadAppData(localStorage, KEY);
 
-const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "" };
+const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "", carry: null };
 
 function todayStr(){ return ymd(new Date()); }
 function nowIso(){ return new Date().toISOString(); }
@@ -694,8 +696,46 @@ function notifyHTML(){
   return `<div class="sheet-bg" data-act="closenotify"></div><div class="sheet"><div class="grab"></div><div class="title" style="font-size:22px;margin-bottom:12px">Уведомления</div>${items}<button class="btn ghost" style="margin-top:14px" data-act="closenotify">Закрыть</button></div>`;
 }
 
+/* --- Вечерний перенос невыполненного --- */
+function maybeOfferCarryover(){
+  if (!db.session || !db.data[db.session]) return;
+  const p = prof();
+  const hm = nowParts(new Date()).hm;
+  if (shouldOfferCarryover(hm, p.workEnd || "18:00", todayStr(), me().plans, p.carryDismissed || null)) {
+    ui.carry = unfinishedPlans(me().plans, todayStr());
+  }
+}
+
+function carryMoveTo(date){
+  if (!ui.carry || !date) return;
+  const ids = ui.carry.map(p => p.id);
+  me().plans = movedPlans(me().plans, ids, date, nowIso());
+  save();
+  ui.carry = null;
+  ui.anchor = date;
+  render();
+}
+
+function carryHTML(){
+  const items = ui.carry.map(p => `<div class="setrow"><span>${esc(p.text)}</span><span class="mini">${esc(dayLabel(p.date))}${p.time ? ", " + esc(p.time) : ""}</span></div>`).join("");
+  return `<div class="sheet-bg" data-act="carry-skip"></div><div class="sheet"><div class="grab"></div>
+    <div class="title" style="font-size:22px;margin-bottom:8px">Перенести невыполненное?</div>
+    <div class="sub" style="margin-bottom:12px">День почти прошёл, а дел осталось: ${ui.carry.length}. Куда перенесём?</div>
+    <div class="card" style="padding:0 14px">${items}</div>
+    <button class="btn" style="margin-top:12px" data-act="carry-move">На завтра</button>
+    <form id="carryf" class="row" style="margin-top:10px" autocomplete="off">
+      <input name="date" type="date" min="${addDays(todayStr(), 1)}" required style="flex:1;min-width:0">
+      <button class="chip" type="submit">В дату</button>
+    </form>
+    <button class="btn ghost" style="margin-top:12px" data-act="carry-skip">Сегодня не предлагать</button></div>`;
+}
+
 function asstNew(cat){
-  return { cat, count: 0, stage: "task", msgs: [{ from: "bot", text: "Привет! Выбери отдел и надиктуй задачу." }] };
+  return {
+    cat, count: 0, stage: "task", mode: "task",
+    goal: { text: "", until: addDays(todayStr(), 14), steps: null, busy: false, err: "", usedAi: false },
+    msgs: [{ from: "bot", text: "Привет! Записывай задачи голосом или текстом — или переключись на «Большая цель», и я разложу её на шаги." }],
+  };
 }
 
 
@@ -719,22 +759,81 @@ function asstSend(text){
   a.stage = "confirm";
 }
 
+async function asstGoalGo(text){
+  const a = ui.asst, t = (text || "").trim();
+  if (!a || t.length < 3 || a.goal.busy) return;
+  a.goal.busy = true; a.goal.err = ""; a.goal.steps = null; render();
+  const start = todayStr(), end = a.goal.until || addDays(start, 14);
+  const load = loadByDate(me().plans);
+  try {
+    if (!isCloudSession()) throw new Error("no-cloud");
+    const r = await api.aiDecompose(cloud.accessToken, { goal: t, startDate: start, endDate: end, load });
+    a.goal.steps = r.steps;
+    a.goal.usedAi = true;
+  } catch (e) {
+    // Нейросеть недоступна (нет ключа/сети/лимит) — раскладываем локальной эвристикой.
+    a.goal.steps = decomposeLocally(t, start, end, load);
+    a.goal.usedAi = false;
+  }
+  a.goal.text = t; a.goal.busy = false; render();
+}
+
+function asstGoalApply(){
+  const a = ui.asst;
+  if (!a || !a.goal.steps || a.goal.steps.length === 0) return;
+  for (const s of a.goal.steps) {
+    me().plans.push({ id: uid(), cat: a.cat, text: s.text, date: s.date, time: "", done: false, updatedAt: nowIso(), deletedAt: null });
+  }
+  save();
+  a.msgs.push({ from: "bot", text: `Добавил ${a.goal.steps.length} шагов в «${CATS[a.cat].name}». Удачи с целью! 💪` });
+  a.count += a.goal.steps.length;
+  a.goal.steps = null;
+  a.stage = "done";
+  render();
+}
+
+function goalHTML(a){
+  const g = a.goal;
+  const msgs = a.msgs.map(m => `<div class="msg ${m.from}">${esc(m.text)}</div>`).join("");
+  if (g.steps) {
+    const list = g.steps.map(s => `<div class="setrow"><span>${esc(s.text)}</span><span class="mini">${esc(dayLabel(s.date))}</span></div>`).join("");
+    return `<div class="msgs">${msgs}</div>
+      <div class="card" style="margin-top:12px">${list}</div>
+      <div class="mini" style="margin-top:8px">${g.usedAi ? "Разложил нейропомощник ✨ Проверь и подтверди." : "ИИ сейчас недоступен — расписал равномерно по свободным дням."}</div>
+      <div class="row" style="margin-top:12px"><button class="btn" data-act="asst-goal-apply">Добавить ${g.steps.length} шагов</button><button class="btn ghost" data-act="asst-goal-back">Изменить</button></div>`;
+  }
+  return `<div class="msgs">${msgs}</div>
+    ${g.err ? `<div class="err">${esc(g.err)}</div>` : ""}
+    <form id="goal" autocomplete="off" style="margin-top:12px">
+      <label>Цель<input name="goal" placeholder="Например: подготовиться к экзамену" required minlength="3" maxlength="300"></label>
+      <label>К какой дате<input name="until" type="date" value="${g.until}" min="${todayStr()}" required></label>
+      <button class="btn" type="submit" ${g.busy ? "disabled" : ""}>${g.busy ? "Думаю…" : "Разложить на шаги"}</button>
+    </form>`;
+}
+
 function asstHTML(){
   const a = ui.asst;
   const chips = Object.entries(CATS).map(([k, v]) => `<button class="chip-btn ${a.cat === k ? "on" : ""}" data-act="asst-cat" data-v="${k}">${v.name}</button>`).join("");
+  const modes = `<div class="chips-row">
+    <button class="chip-btn ${a.mode === "task" ? "on" : ""}" data-act="asst-mode" data-v="task">Задачи</button>
+    <button class="chip-btn ${a.mode === "goal" ? "on" : ""}" data-act="asst-mode" data-v="goal">Большая цель ✨</button>
+  </div>`;
   const msgs = a.msgs.map(m => `<div class="msg ${m.from}">${esc(m.text)}</div>`).join("");
   const choice = a.stage === "confirm" ? `<div class="row" style="margin-top:12px"><button class="btn" data-act="asst-yes">Да, всё</button><button class="btn ghost" data-act="asst-no">Нет, есть ещё</button></div>` : "";
   const reset = a.stage === "done" ? `<button class="btn ghost" style="margin-top:12px" data-act="asst-reset">Новая запись</button>` : "";
+  const body = a.mode === "goal"
+    ? goalHTML(a)
+    : `${msgs}${choice}${reset}
+    <form id="asst" class="row" style="margin-top:12px" autocomplete="off">
+      <input id="asstInput" name="text" placeholder="Надиктуй или напиши задачу" ${a.stage === "done" ? "disabled" : ""} style="flex:1;min-width:0">
+      <button class="plus" type="submit" aria-label="Отправить">↑</button>
+    </form>`;
   return `<div class="sheet-bg" data-act="asst-close"></div>
   <div class="sheet"><div class="grab"></div>
     <div class="row" style="justify-content:space-between;margin-bottom:12px"><div class="title" style="font-size:24px">Помощник</div><button class="iconbtn" data-act="asst-close" aria-label="Закрыть">✕</button></div>
     <div class="chips-row">${chips}</div>
-    <div class="msgs">${msgs}</div>
-    ${choice}${reset}
-    <form id="asst" class="row" style="margin-top:12px" autocomplete="off">
-      <input id="asstInput" name="text" placeholder="Надиктуй или напиши задачу" ${a.stage === "done" ? "disabled" : ""} style="flex:1;min-width:0">
-      <button class="plus" type="submit" aria-label="Отправить">↑</button>
-    </form>
+    ${modes}
+    ${body}
   </div>`;
 }
 
@@ -988,6 +1087,7 @@ function appView(){
   ${ui.sheet ? sheetHTML() : ""}
   ${ui.assistant ? asstHTML() : ""}
   ${ui.notify ? notifyHTML() : ""}
+  ${ui.carry ? carryHTML() : ""}
   ${ui.migrate ? migrateHTML() : ""}
   <nav class="tabs">${tabs.map(([k, ic, name]) => `<button data-act="tab" data-v="${k}" class="${ui.tab === k ? "on" : ""}">${icon(ic)}<span>${name}</span></button>`).join("")}</nav>`;
 }
@@ -1049,6 +1149,8 @@ document.addEventListener("click", e => {
   if (a === "syncnow") { if (sync) void sync.syncNow(); return; }
   if (a === "push-toggle") { if (ui.pushOn) void pushUnsubscribeFlow(); else void pushSubscribeFlow(); return; }
   if (a === "push-test") { void pushTestFlow(); return; }
+  if (a === "carry-move") { carryMoveTo(addDays(todayStr(), 1)); return; }
+  if (a === "carry-skip") { prof().carryDismissed = todayStr(); save(); ui.carry = null; return render(); }
   if (a === "migrate") {
     const src = db.data[v];
     if (src && isCloudSession()) {
@@ -1089,6 +1191,9 @@ document.addEventListener("click", e => {
   if (a === "asst-open") { ui.asst = asstNew("life"); ui.assistant = true; return render(); }
   if (a === "asst-close") { ui.assistant = false; return render(); }
   if (a === "asst-cat") { ui.asst.cat = v; return render(); }
+  if (a === "asst-mode") { ui.asst.mode = v; return render(); }
+  if (a === "asst-goal-apply") return asstGoalApply();
+  if (a === "asst-goal-back") { ui.asst.goal.steps = null; return render(); }
   if (a === "asst-yes") { ui.asst.msgs.push({ from: "bot", text: `Отлично! Записано задач: ${ui.asst.count}.` }); ui.asst.stage = "done"; return render(); }
   if (a === "asst-no") { ui.asst.msgs.push({ from: "bot", text: "Слушаю, что ещё?" }); ui.asst.stage = "more"; return render(); }
   if (a === "asst-reset") { ui.asst = asstNew(ui.asst.cat); return render(); }
@@ -1185,6 +1290,8 @@ document.addEventListener("submit", e => {
   if (f.id === "cloudauth") return doCloudAuth(f);
   if (f.id === "pwd") return changePassword(f);
   if (f.id === "asst") { asstSend(f.text.value); return render(); }
+  if (f.id === "goal") { ui.asst.goal.until = f.until.value; void asstGoalGo(f.goal.value); return; }
+  if (f.id === "carryf") { carryMoveTo(f.date.value); return; }
   if (f.id === "wk") { addSet(f); return; }
   if (["subj", "asm", "att", "dl", "les", "card"].includes(f.id) && !ui.studyMsg) ui.studyForm = null;
   if (f.id === "subj") { studyOf().subjects.push({ id: uid(), name: f.name.value.trim(), failedAttempts: 0, updatedAt: nowIso(), deletedAt: null }); save(); return render(); }
@@ -1307,6 +1414,7 @@ function checkReminders(){
 }
 
 setInterval(checkReminders, 30000);
+maybeOfferCarryover();
 render();
 checkReminders();
 if (isCloudSession()) startSync();

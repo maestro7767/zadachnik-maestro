@@ -54,6 +54,7 @@ export interface SyncApi {
   pushSubscribe(accessToken: string, subscription: unknown, tzOffset?: number): Promise<void>;
   pushUnsubscribe(accessToken: string, endpoint: string): Promise<void>;
   pushTest(accessToken: string): Promise<{ sent: number; failed: number; removed: number }>;
+  aiDecompose(accessToken: string, body: { goal: string; startDate: string; endDate: string; load: Record<string, number> }): Promise<{ steps: { date: string; text: string }[] }>;
 }
 
 export function createApi(baseUrl: string, fetchFn: FetchLike): SyncApi {
@@ -92,5 +93,6 @@ export function createApi(baseUrl: string, fetchFn: FetchLike): SyncApi {
       await call("POST", "/push/unsubscribe", { token, body: { endpoint } });
     },
     pushTest: (token) => call("POST", "/push/test", { token }),
+    aiDecompose: (token, body) => call("POST", "/ai/decompose", { token, body }),
   };
 }

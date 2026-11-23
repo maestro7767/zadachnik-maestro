@@ -54,6 +54,9 @@ function fakeApi(): FakeApi {
     async pushTest() {
       return { sent: 0, failed: 0, removed: 0 };
     },
+    async aiDecompose() {
+      throw new Error("not used");
+    },
     async pull(_token: string, since: string | null) {
       api.pulled.push(since);
       return { now: NOW, changes: api.remoteChanges as never };
