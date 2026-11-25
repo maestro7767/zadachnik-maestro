@@ -186,6 +186,7 @@ import { dailyChallenges, evaluateChallenge } from "./src/gamification/challenge
 import { levelFromXp, progressToNext } from "./src/gamification/xp.ts";
 import { rewardsEarned, streakWithFreeze } from "./src/gamification/streaks.ts";
 import { SHOP_ITEMS, BACKGROUND_STYLES, wallet, itemById, isOwned, canBuy } from "./src/gamification/shop.ts";
+import { categoryShare, weekdayProductivity, weeklyReport } from "./src/stats/analytics.ts";
 import { toggleDay, habitStreak } from "./src/habits/habits.ts";
 import { starterHabits } from "./src/habits/starter.ts";
 import { DEFAULT_EXERCISES, isValidSet, exerciseProgress } from "./src/sport/workouts.ts";
@@ -486,6 +487,30 @@ function weekChartHTML(){
   return `<div class="label">Неделя</div><div class="card"><div class="wchart">${bars}</div></div>`;
 }
 
+function analyticsHTML(){
+  const WDS_FULL = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"];
+  const plans = me().plans;
+  const today = todayStr();
+  const report = weeklyReport(plans, today);
+  const shares = categoryShare(plans, report.from, report.to);
+  const maxDone = Math.max(1, ...shares.map(s => s.done));
+  const rows = shares.map(s => `<div class="setrow"><span><span style="color:${s.color}">●</span> ${esc(s.name)}</span>
+    <span class="grow" style="margin:0 12px"><span class="bar" style="display:block"><i style="width:${Math.round(s.done / maxDone * 100)}%;background:${s.color}"></i></span></span>
+    <span class="mini">${s.done}/${s.total}</span></div>`).join("");
+  const prod = weekdayProductivity(plans);
+  const bestDay = prod.best !== null ? `Твой самый продуктивный день — ${WDS_FULL[prod.best]}. Ставь на него самое важное.` : "Выполни первый план — и аналитика покажет твой лучший день.";
+  const delta = report.delta > 0 ? `на ${report.delta} больше, чем на прошлой неделе 📈`
+    : report.delta < 0 ? `на ${-report.delta} меньше, чем на прошлой неделе — неделя ещё не закончилась`
+    : `ровно столько же, сколько на прошлой неделе`;
+  return `<div class="label">Аналитика недели</div>
+    <div class="card">
+      <div class="setrow"><span>Выполнено на этой неделе</span><b>${report.done} из ${report.total} · ${report.pct}%</b></div>
+      <div class="mini" style="padding-bottom:8px">Это ${delta}.${report.topCategory ? ` Лучше всего идут дела в отделе «${esc(report.topCategory)}».` : ""}</div>
+      ${rows}
+      <div class="mini" style="padding-top:8px">${esc(bestDay)}</div>
+    </div>`;
+}
+
 function phraseHTML(){
   const P = ["Маленькие шаги тоже считаются.", "Сегодня — отличный день, чтобы начать.", "Порядок в делах — порядок в голове.", "Один план за раз — и день твой.", "Ты уже ближе к цели, чем вчера."];
   const i = Math.floor(Date.parse(todayStr()) / 86400000) % P.length;
@@ -545,6 +570,7 @@ function todayView(){
     ${p.showStats ? statsBlock() : ""}
     ${gameHTML(p)}
     ${weekChartHTML()}
+    ${p.showStats ? analyticsHTML() : ""}
     ${phraseHTML()}
     <div class="card hero"><div class="row"><div class="grow"><b style="font-size:17px">${done} из ${day.length} выполнено</b><div class="mini">Рабочий день ${p.workStart}–${p.workEnd} · цель ${p.goal}</div></div>${ringHTML(pct)}</div></div>
     ${dayList(day)}
