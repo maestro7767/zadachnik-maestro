@@ -123,6 +123,12 @@ input[type="date"],input[type="time"]{min-width:0;max-width:100%;-webkit-appeara
 .msg.bot{background:var(--field);align-self:flex-start;border-bottom-left-radius:6px}
 .msg.me{background:var(--accent);color:#fff;align-self:flex-end;border-bottom-right-radius:6px}
 .chips-row{display:flex;gap:6px;flex-wrap:wrap}
+.shop-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.shop-item{background:var(--field);border-radius:12px;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:0}
+.shop-item.on{outline:2px solid var(--accent)}
+.shop-emoji{font-size:26px;line-height:1}
+.shop-color{width:26px;height:26px;border-radius:50%}
+.shop-bg{width:44px;height:26px;border-radius:8px}
 .chip-btn{padding:8px 14px;border-radius:999px;background:var(--field);font-size:14px;font-weight:600;min-height:0}
 .chip-btn.on{background:var(--accent);color:#fff}
 .avwrap{position:relative;width:88px;margin:0 auto 10px}
@@ -179,6 +185,7 @@ import { totalXp } from "./src/gamification/total.ts";
 import { dailyChallenges, evaluateChallenge } from "./src/gamification/challenges.ts";
 import { levelFromXp, progressToNext } from "./src/gamification/xp.ts";
 import { rewardsEarned, streakWithFreeze } from "./src/gamification/streaks.ts";
+import { SHOP_ITEMS, BACKGROUND_STYLES, wallet, itemById, isOwned, canBuy } from "./src/gamification/shop.ts";
 import { toggleDay, habitStreak } from "./src/habits/habits.ts";
 import { starterHabits } from "./src/habits/starter.ts";
 import { DEFAULT_EXERCISES, isValidSet, exerciseProgress } from "./src/sport/workouts.ts";
@@ -520,7 +527,7 @@ function gameHTML(p){
     .map((r) => `<span class="chip">${esc(r.name)}</span>`).join("")
     || `<span class="mini">Первая награда откроется за серию 3 дня</span>`;
   return `<div class="label">Уровень ${pr.level}</div>
-    <div class="card"><div class="row"><div class="grow"><b>${xp} XP</b><div class="mini">До уровня ${pr.level + 1}: ${pr.left} XP</div></div><b style="color:var(--accent)">${pr.percent}%</b></div><div class="bar"><i style="width:${pr.percent}%"></i></div></div>
+    <div class="card"><div class="row"><div class="grow"><b>${xp} XP</b><div class="mini">До уровня ${pr.level + 1}: ${pr.left} XP · Монеты: ${walletCoins(p)} 🪙</div></div><b style="color:var(--accent)">${pr.percent}%</b></div><div class="bar"><i style="width:${pr.percent}%"></i></div></div>
     <div class="label">Испытания дня</div><div class="card">${challenges}</div>
     <div class="label">Награды</div><div class="card"><div class="chips-row">${rewards}</div></div>`;
 }
@@ -597,12 +604,80 @@ function sectionView(cat){
 function cardStyle(p){
   if (p.cardPreset === "photo" && p.cardPhoto) return `background-image:linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)),url(${p.cardPhoto});background-size:cover;background-position:center`;
   if (p.cardPreset === "dark") return "background:#16161d";
+  if (p.cardPreset && BACKGROUND_STYLES[p.cardPreset]) return BACKGROUND_STYLES[p.cardPreset];
   return "";
 }
 
 function avatarHTML(p, size){
-  const inner = p.avatar ? `<img src="${p.avatar}" alt="">` : esc((p.name || db.session).slice(0, 1).toUpperCase());
+  const inner = p.avatarEmoji ? esc(p.avatarEmoji)
+    : p.avatar ? `<img src="${p.avatar}" alt="">`
+    : esc((p.name || db.session).slice(0, 1).toUpperCase());
   return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px">${inner}</div>`;
+}
+
+/* --- Магазин --- */
+function walletCoins(p){ return wallet(totalXp(me().plans, todayStr()), p.spent || 0); }
+
+function shopApply(p, item){
+  if (item.kind === "avatar") p.avatarEmoji = item.value;
+  if (item.kind === "accent") p.accent = item.value;
+  if (item.kind === "background") p.cardPreset = item.value;
+}
+
+function shopBuy(id){
+  const p = prof();
+  const item = itemById(id);
+  if (!item) return;
+  const owned = p.owned || (p.owned = []);
+  if (!canBuy(item, owned, walletCoins(p))) {
+    ui.colorMsg = `Не хватает монет на «${item.name}» — выполняй планы и испытания 💪`;
+    return render();
+  }
+  p.spent = (p.spent || 0) + item.price;
+  owned.push(item.id);
+  shopApply(p, item);
+  p.updatedAt = nowIso();
+  save();
+  ui.colorMsg = `Куплено: ${item.name} ✨`;
+  render();
+}
+
+function shopEquip(id){
+  const p = prof();
+  const item = itemById(id);
+  if (!item || !isOwned(p.owned || [], id)) return;
+  shopApply(p, item);
+  p.updatedAt = nowIso();
+  save();
+  render();
+}
+
+function shopHTML(p){
+  if (p.game === false) return "";
+  const w = walletCoins(p);
+  const owned = p.owned || [];
+  const renderItem = (i, preview, equipped) => {
+    const own = isOwned(owned, i.id);
+    return `<button class="shop-item ${equipped ? "on" : ""}" data-act="${own ? "shop-equip" : "shop-buy"}" data-v="${i.id}" aria-label="${esc(i.name)}">
+      ${preview}<span class="mini">${own ? (equipped ? "Выбрано" : "Применить") : i.price + " 🪙"}</span></button>`;
+  };
+  const avatars = SHOP_ITEMS.filter(i => i.kind === "avatar")
+    .map(i => renderItem(i, `<span class="shop-emoji">${i.value}</span>`, p.avatarEmoji === i.value)).join("");
+  const accents = SHOP_ITEMS.filter(i => i.kind === "accent")
+    .map(i => renderItem(i, `<span class="shop-color" style="background:${i.value}"></span>`, p.accent === i.value)).join("");
+  const bgs = SHOP_ITEMS.filter(i => i.kind === "background")
+    .map(i => renderItem(i, `<span class="shop-bg" style="${BACKGROUND_STYLES[i.value]}"></span>`, p.cardPreset === i.value)).join("");
+  return `<div class="label">Магазин · ${w} 🪙</div>
+    <div class="card">
+      <div class="mini" style="padding-bottom:8px">Монеты — это твой заработанный опыт: 1 XP = 1 🪙</div>
+      <div class="mini" style="font-weight:700;padding-bottom:6px">Аватарки</div>
+      <div class="shop-grid">${avatars}</div>
+      <div class="mini" style="font-weight:700;padding:12px 0 6px">Акцентные цвета</div>
+      <div class="shop-grid">${accents}</div>
+      <div class="mini" style="font-weight:700;padding:12px 0 6px">Фоны карточки</div>
+      <div class="shop-grid">${bgs}</div>
+      ${p.avatarEmoji ? `<button class="chip" data-act="unequip-avatar" style="margin-top:12px">Убрать аватарку</button>` : ""}
+    </div>`;
 }
 
 function accentLevel(){ return levelFromXp(totalXp(me().plans, todayStr())); }
@@ -627,6 +702,7 @@ function profileView(){
       <button class="${p.cardPreset === "dark" ? "on" : ""}" data-act="cardbg" data-v="dark">☾<span>Тёмный</span></button>
       <button class="${p.cardPreset === "photo" ? "on" : ""}" data-act="pickcardbg">▣<span>Фото</span></button>
     </div><input type="file" id="cbf" accept="image/*" hidden></div>
+    ${shopHTML(p)}
     ${ui.editProfile ? `<div class="card"><form id="profile" autocomplete="off">
       <label>Имя на экране<input name="name" maxlength="30" value="${esc(p.name)}"></label>
       <label>О себе<textarea name="bio" maxlength="200" rows="2">${esc(p.bio || "")}</textarea></label>
@@ -1152,6 +1228,9 @@ document.addEventListener("click", e => {
   if (a === "push-test") { void pushTestFlow(); return; }
   if (a === "carry-move") { carryMoveTo(addDays(todayStr(), 1)); return; }
   if (a === "carry-skip") { prof().carryDismissed = todayStr(); save(); ui.carry = null; return render(); }
+  if (a === "shop-buy") { shopBuy(v); return; }
+  if (a === "shop-equip") { shopEquip(v); return; }
+  if (a === "unequip-avatar") { const p = prof(); p.avatarEmoji = ""; p.updatedAt = nowIso(); save(); return render(); }
   if (a === "migrate") {
     const src = db.data[v];
     if (src && isCloudSession()) {
