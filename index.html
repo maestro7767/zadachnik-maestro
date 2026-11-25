@@ -31,11 +31,11 @@ label>*:not(span){margin-top:6px}
 .sub{color:var(--mute);font-size:14px;margin-top:2px}
 .pill{background:var(--card);border-radius:999px;padding:9px 16px;font-size:15px;font-weight:600;color:var(--accent)}
 .plus{width:40px;height:40px;border-radius:50%;background:var(--accent);color:#fff;font-size:24px;line-height:1;display:flex;align-items:center;justify-content:center}
-.card{background:var(--card);border-radius:18px;padding:16px;margin:12px 0}
+.card{background:var(--card);border-radius:18px;padding:16px;margin:12px 0;border:1px solid rgba(128,128,160,.14);box-shadow:0 8px 24px rgba(0,0,0,.14)}
 .row{display:flex;gap:10px;align-items:center}
 .grow{flex:1;min-width:0}
 .bar{height:6px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:10px}
-.bar i{display:block;height:100%;background:var(--accent);border-radius:6px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .6s cubic-bezier(.2,.9,.3,1)}
 .stats3{display:grid;grid-template-columns:repeat(3,1fr);background:var(--card);border-radius:18px;padding:16px 0;margin:12px 0}
 .stats3 div{text-align:center;border-left:1px solid var(--line)}
 .stats3 div:first-child{border-left:none}
@@ -90,8 +90,9 @@ label>*:not(span){margin-top:6px}
 .calhead{display:flex;justify-content:space-between;align-items:center;margin:8px 0 14px}
 .calhead b{font-size:18px}
 .iconbtn{width:38px;height:38px;border-radius:50%;background:var(--field);font-size:18px;display:flex;align-items:center;justify-content:center}
-.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9}
-.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-radius:24px 24px 0 0;padding:14px 18px calc(18px + env(safe-area-inset-bottom,0px));z-index:10;max-height:90vh;overflow:auto;max-width:520px;margin:0 auto}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9;animation:fadeIn .25s ease}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-radius:24px 24px 0 0;padding:14px 18px calc(18px + env(safe-area-inset-bottom,0px));z-index:10;max-height:90vh;overflow:auto;max-width:520px;margin:0 auto;animation:sheetUp .32s cubic-bezier(.2,.9,.3,1)}
+@keyframes sheetUp{from{transform:translateY(28px);opacity:.5}to{transform:none;opacity:1}}
 .grab{width:40px;height:5px;border-radius:5px;background:var(--line);margin:0 auto 12px}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
 .grid2>label{min-width:0}
@@ -106,7 +107,7 @@ input[type="date"],input[type="time"]{min-width:0;max-width:100%;-webkit-appeara
 .wchart{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;height:130px}
 .wcol{display:flex;flex-direction:column;align-items:center;gap:6px;height:100%}
 .wbar{flex:1;width:100%;display:flex;align-items:flex-end;background:var(--field);border-radius:10px;overflow:hidden}
-.wbar i{display:block;width:100%;background:var(--accent);border-radius:10px;opacity:.5}
+.wbar i{display:block;width:100%;background:var(--accent);border-radius:10px;opacity:.5;transition:height .5s ease}
 .wcol.now .wbar i{opacity:1}
 .wcol small{font-size:12px;color:var(--mute)}
 .wcol.now small{color:var(--accent);font-weight:700}
@@ -145,6 +146,9 @@ input[type="date"],input[type="time"]{min-width:0;max-width:100%;-webkit-appeara
 .hero .mini{color:rgba(255,255,255,.85)}
 .hero .bar{background:rgba(255,255,255,.3)}
 .hero .bar i{background:#fff}
+.hero circle{transition:stroke-dasharray .6s cubic-bezier(.2,.9,.3,1)}
+.coinpill{background:var(--field);border-radius:999px;padding:4px 10px;font-weight:700}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 
 /* Визуальный слой: анимации и оформление */
 @keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.18)}100%{transform:scale(1)}}
@@ -467,7 +471,7 @@ function dayList(day){
   const untimed = day.filter(p => !p.time);
   const timed = day.filter(p => p.time).sort((a, b) => a.time.localeCompare(b.time));
   const all = [...timed, ...untimed];
-  return all.length ? `<div class="tl">${all.map(taskHTML).join("")}</div>` : `<div class="empty">На этот день планов нет</div>`;
+  return all.length ? `<div class="tl">${all.map(taskHTML).join("")}</div>` : `<div class="empty">На этот день планов нет<button class="chip" data-act="asst-open" style="margin-top:8px">🪄 Добавить через помощника</button></div>`;
 }
 
 function statsBlock(){
@@ -552,7 +556,7 @@ function gameHTML(p){
     .map((r) => `<span class="chip">${esc(r.name)}</span>`).join("")
     || `<span class="mini">Первая награда откроется за серию 3 дня</span>`;
   return `<div class="label">Уровень ${pr.level}</div>
-    <div class="card"><div class="row"><div class="grow"><b>${xp} XP</b><div class="mini">До уровня ${pr.level + 1}: ${pr.left} XP · Монеты: ${walletCoins(p)} 🪙</div></div><b style="color:var(--accent)">${pr.percent}%</b></div><div class="bar"><i style="width:${pr.percent}%"></i></div></div>
+    <div class="card"><div class="row"><div class="grow"><b>${xp} XP</b><div class="mini">До уровня ${pr.level + 1}: ${pr.left} XP</div></div><div style="text-align:right"><b style="color:var(--accent)">${pr.percent}%</b><div style="margin-top:6px"><span class="coinpill">${walletCoins(p)} 🪙</span></div></div></div><div class="bar"><i style="width:${pr.percent}%"></i></div></div>
     <div class="label">Испытания дня</div><div class="card">${challenges}</div>
     <div class="label">Награды</div><div class="card"><div class="chips-row">${rewards}</div></div>`;
 }
@@ -623,7 +627,7 @@ function sectionView(cat){
     <div class="label">Заметки</div>
     <div class="card" style="padding:12px"><textarea data-note="${cat}" placeholder="Заметки по разделу. Сохраняются автоматически.">${esc(me().notes[cat] || "")}</textarea></div>
     <div class="label">Планы</div>
-    ${plans.length ? plans.map(taskHTML).join("") : `<div class="empty">Пока нет планов</div>`}
+    ${plans.length ? plans.map(taskHTML).join("") : `<div class="empty">Пока нет планов<button class="chip" data-act="asst-open" style="margin-top:8px">🪄 Добавить через помощника</button></div>`}
   </div>`;
 }
 
