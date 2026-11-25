@@ -54,6 +54,7 @@ label>*:not(span){margin-top:6px}
 .label{font-size:13px;color:var(--mute);font-weight:600;margin:20px 4px 0;text-transform:uppercase;letter-spacing:.06em}
 .empty{color:var(--mute);text-align:center;padding:20px 12px;background:var(--card);border-radius:18px;margin-top:12px}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);background:var(--field);border-radius:14px;padding:4px;gap:4px}
+.seg2{grid-template-columns:repeat(2,1fr)}
 .seg button{padding:10px 6px;border-radius:11px;font-size:14px;font-weight:600;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:2px}
 .seg button.on{background:var(--accent);color:#fff}
 .colors{display:flex;gap:14px;flex-wrap:wrap}
@@ -531,7 +532,7 @@ function todayView(){
   const pct = day.length ? Math.round(done / day.length * 100) : 0;
   return `
   <div class="head"><div>${helloBtn(p)}</div>
-    <div class="row"><button class="iconbtn" data-act="asst-open" aria-label="Помощник">🎙</button><button class="iconbtn" data-act="notify" aria-label="Уведомления">🔔</button></div></div>
+    <div class="row"><button class="iconbtn" data-act="asst-open" aria-label="Помощник">🪄</button><button class="iconbtn" data-act="notify" aria-label="Уведомления">🔔</button></div></div>
   <div class="wrap">
     ${stripHTML()}
     ${p.showStats ? statsBlock() : ""}
@@ -814,9 +815,9 @@ function goalHTML(a){
 function asstHTML(){
   const a = ui.asst;
   const chips = Object.entries(CATS).map(([k, v]) => `<button class="chip-btn ${a.cat === k ? "on" : ""}" data-act="asst-cat" data-v="${k}">${v.name}</button>`).join("");
-  const modes = `<div class="chips-row">
-    <button class="chip-btn ${a.mode === "task" ? "on" : ""}" data-act="asst-mode" data-v="task">Задачи</button>
-    <button class="chip-btn ${a.mode === "goal" ? "on" : ""}" data-act="asst-mode" data-v="goal">Большая цель ✨</button>
+  const modes = `<div class="seg seg2" style="margin-top:10px">
+    <button class="${a.mode === "task" ? "on" : ""}" data-act="asst-mode" data-v="task">✎<span>Задачи</span></button>
+    <button class="${a.mode === "goal" ? "on" : ""}" data-act="asst-mode" data-v="goal">✨<span>Большая цель</span></button>
   </div>`;
   const msgs = a.msgs.map(m => `<div class="msg ${m.from}">${esc(m.text)}</div>`).join("");
   const choice = a.stage === "confirm" ? `<div class="row" style="margin-top:12px"><button class="btn" data-act="asst-yes">Да, всё</button><button class="btn ghost" data-act="asst-no">Нет, есть ещё</button></div>` : "";
