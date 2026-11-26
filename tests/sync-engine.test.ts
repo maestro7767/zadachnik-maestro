@@ -82,6 +82,7 @@ function fakeApi(): FakeApi {
     async roomDelete() {},
     async roomLeave() {},
     async roomSetGoal() {},
+    async changePassword() {},
     async pull(_token: string, since: string | null) {
       api.pulled.push(since);
       return { now: NOW, changes: api.remoteChanges as never };

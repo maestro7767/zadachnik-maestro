@@ -236,7 +236,7 @@ if (SpeechRecognitionApi) {
 let db = { users: {}, data: {}, session: null };
 db = loadAppData(localStorage, KEY);
 
-const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "", carry: null, room: null, rooms: null, roomDetail: null, roomTasks: [], roomMsg: "" };
+const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", pwdOk: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "", carry: null, room: null, rooms: null, roomDetail: null, roomTasks: [], roomMsg: "" };
 
 function todayStr(){ return ymd(new Date()); }
 function nowIso(){ return new Date().toISOString(); }
@@ -273,6 +273,7 @@ function cloudErrorText(e){
     not_found: "Не найдено",
     invalid_name: "Название комнаты: 2–40 символов",
     invalid_code: "Проверь код приглашения",
+    wrong_password: "Текущий пароль неверный",
   })[e.code] || "Ошибка сервера: " + e.code;
 }
 
@@ -828,8 +829,14 @@ function profileView(){
     <div class="label">Пароль</div>
     <div class="card">
       ${ui.pwdMsg ? `<div class="err">${esc(ui.pwdMsg)}</div>` : ""}
+      ${ui.pwdOk ? `<div class="mini" style="color:var(--green);padding:6px 0">${esc(ui.pwdOk)}</div>` : ""}
       ${isCloudSession()
-        ? `<div class="mini" style="padding:6px 0">Облачный аккаунт: смена пароля появится вместе с подтверждением email</div>`
+        ? `<form id="cloudpwd" autocomplete="off">
+        <label>Текущий<input name="old" type="password" required></label>
+        <label>Новый<input name="nw" type="password" required minlength="8" maxlength="128"></label>
+        <button class="btn" type="submit" ${ui.busy ? "disabled" : ""}>Изменить пароль</button>
+        <div class="mini" style="margin-top:8px">После смены пароля другие устройства попросят войти заново</div>
+      </form>`
         : `<form id="pwd" autocomplete="off">
         <label>Текущий<input name="old" type="password" required></label>
         <label>Новый<input name="nw" type="password" required minlength="6"></label>
@@ -1374,6 +1381,18 @@ async function doCloudAuth(f){
   }
 }
 
+async function changeCloudPassword(f){
+  if (!cloud) return;
+  if (f.nw.value.length < 8 || f.nw.value.length > 128) { ui.pwdMsg = "Новый пароль: от 8 до 128 символов"; ui.pwdOk = ""; return render(); }
+  ui.busy = true; ui.pwdMsg = ""; ui.pwdOk = ""; render();
+  try {
+    await roomAuthRetry(t => api.changePassword(t, f.old.value, f.nw.value));
+    ui.pwdOk = "Пароль изменён ✓";
+  } catch (e) {
+    ui.pwdMsg = cloudErrorText(e);
+  } finally { ui.busy = false; render(); }
+}
+
 async function changePassword(f){
   const login = db.session;
   if (String(db.users[login]).startsWith("social:")) { ui.pwdMsg = "Пароль не задан: вход через Google или Apple"; return render(); }
@@ -1573,6 +1592,7 @@ document.addEventListener("submit", e => {
   if (f.id === "auth") return doAuth(f);
   if (f.id === "cloudauth") return doCloudAuth(f);
   if (f.id === "pwd") return changePassword(f);
+  if (f.id === "cloudpwd") return changeCloudPassword(f);
   if (f.id === "asst") { asstSend(f.text.value); return render(); }
   if (f.id === "goal") { ui.asst.goal.until = f.until.value; void asstGoalGo(f.goal.value); return; }
   if (f.id === "carryf") { carryMoveTo(f.date.value); return; }

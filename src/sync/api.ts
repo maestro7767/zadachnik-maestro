@@ -66,6 +66,7 @@ export interface SyncApi {
   roomDelete(accessToken: string, id: string): Promise<void>;
   roomLeave(accessToken: string, id: string): Promise<void>;
   roomSetGoal(accessToken: string, id: string, weeklyGoal: number): Promise<void>;
+  changePassword(accessToken: string, oldPassword: string, newPassword: string): Promise<void>;
 }
 
 export interface RoomListItemDto {
@@ -152,6 +153,9 @@ export function createApi(baseUrl: string, fetchFn: FetchLike): SyncApi {
     },
     roomSetGoal: async (token, id, weeklyGoal) => {
       await call("PATCH", `/rooms/${encodeURIComponent(id)}`, { token, body: { weeklyGoal } });
+    },
+    changePassword: async (token, oldPassword, newPassword) => {
+      await call("POST", "/auth/password", { token, body: { oldPassword, newPassword } });
     },
   };
 }

@@ -190,6 +190,29 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     return reply.send({ ok: true });
   });
 
+  // Смена пароля по текущему. Лимит как на вход: старый пароль не перебрать.
+  app.post("/auth/password", async (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    if (!limiter.hit(userId, nowMs())) return reply.code(429).send({ error: "rate_limited" });
+    const body = req.body as Record<string, unknown> | null;
+    const oldPassword = typeof body?.oldPassword === "string" ? body.oldPassword : "";
+    const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
+    if (newPassword.length < MIN_PASSWORD_LEN || newPassword.length > MAX_PASSWORD_LEN) {
+      return reply.code(400).send({ error: "weak_password" });
+    }
+    const user = db.prepare("SELECT pass_hash FROM users WHERE id = ?").get(userId) as { pass_hash: string } | undefined;
+    if (!user || !(await verifyPassword(user.pass_hash, oldPassword))) {
+      return reply.code(403).send({ error: "wrong_password" });
+    }
+    const passHash = await hashPassword(newPassword);
+    db.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").run(passHash, userId);
+    // После смены пароля сессии на других устройствах умирают: refresh-токены сжигаем.
+    // Текущий access-токен доживает свой срок, клиент тут же получит новую пару при синке.
+    db.prepare("DELETE FROM tokens WHERE user_id = ? AND kind = 'refresh'").run(userId);
+    return reply.send({ ok: true });
+  });
+
   app.get("/healthz", () => ({ ok: true }));
 
   app.get("/me", (req, reply) => {
