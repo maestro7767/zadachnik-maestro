@@ -1,0 +1,24 @@
+name: iOS build check
+
+# Проверяет, что Xcode-проект собирается (симулятор, без подписи).
+# Для App Store нужен платный аккаунт Apple Developer и настроенная подпись — см. docs/store.md.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync ios
+      - name: Собрать проект Xcode (симулятор)
+        working-directory: ios/App
+        run: xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build

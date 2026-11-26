@@ -47,3 +47,14 @@
 - [ ] Значок 512×512 и feature graphic 1024×500 для консоли Play
 - [ ] Подписанный release-AAB: сгенерировать keystore, настроить signingConfig в `android/app/build.gradle`
 - [ ] Аккаунт разработчика Google Play ($25)
+
+## Apple / iOS
+
+**Бесплатный путь (уже работает):** приложение — PWA. На iPhone: Safari → «Поделиться» → «На экран «Домой»». Своя иконка, полноэкранный режим, офлайн и пуши (iOS 16.4+).
+
+**App Store:**
+- [ ] Аккаунт Apple Developer ($99/год)
+- [ ] В CI (macos-latest) уже проверяется, что проект собирается: workflow «iOS build check»
+- [ ] Для релиза: открыть `ios/App/App.xcworkspace` в Xcode (на Mac или macOS-раннере), настроить Signing → свой Team, собрать Archive → загрузить в App Store Connect
+- [ ] Скриншоты для App Store: 6.7" (1290×2796) и 6.5" (1284×2778)
+- [ ] В App Store Connect: описание из раздела выше + та же политика конфиденциальности
