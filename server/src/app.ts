@@ -10,6 +10,7 @@ import { createPushSender, removeSubscription, saveSubscription, sendToUser, val
 import type { PushSend, VapidConfig } from "./push.ts";
 import { decomposeWithLLM } from "./ai.ts";
 import type { AiConfig, ChatFetch } from "./ai.ts";
+import { addTask, createRoom, deleteRoom, deleteTask, joinRoom, leaveRoom, listRooms, listTasks, roleOf, roomDetail, setWeeklyGoal, toggleTask } from "./rooms.ts";
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 8;
@@ -68,7 +69,7 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
   // Cookie не используются, авторизация по Bearer-токену, поэтому "*" безопасен.
   app.addHook("onSend", async (req, reply) => {
     reply.header("access-control-allow-origin", corsOrigin);
-    reply.header("access-control-allow-methods", "GET, POST, OPTIONS");
+    reply.header("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
     reply.header("access-control-allow-headers", "authorization, content-type");
   });
   app.options("/*", (req, reply) => reply.code(204).send());
@@ -330,6 +331,129 @@ export function buildApp(db: Db, opts: BuildOptions = {}): FastifyInstance {
     } catch {
       return reply.code(502).send({ error: "ai_failed" });
     }
+  });
+
+  /* --- Совместные комнаты --- */
+  const nowIso = () => new Date(nowMs()).toISOString();
+  const ROOM_NAME_MIN = 2;
+  const ROOM_NAME_MAX = 40;
+  const ROOM_TASK_MAX = 200;
+  const ROOM_DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
+
+  app.post("/rooms", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const name = (req.body as Record<string, unknown> | null)?.name;
+    if (typeof name !== "string" || name.trim().length < ROOM_NAME_MIN || name.trim().length > ROOM_NAME_MAX) {
+      return reply.code(400).send({ error: "invalid_name" });
+    }
+    return reply.code(201).send(createRoom(db, userId, name.trim(), nowIso()));
+  });
+
+  app.post("/rooms/join", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const code = (req.body as Record<string, unknown> | null)?.code;
+    if (typeof code !== "string" || code.trim().length === 0 || code.trim().length > 12) {
+      return reply.code(400).send({ error: "invalid_code" });
+    }
+    const res = joinRoom(db, userId, code, nowIso());
+    if (!res.ok) {
+      return reply.code(res.error === "not_found" ? 404 : 409).send({ error: res.error === "not_found" ? "invite_not_found" : "already_member" });
+    }
+    return reply.code(201).send({ roomId: res.roomId });
+  });
+
+  app.get("/rooms", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ rooms: listRooms(db, userId, nowIso()) });
+  });
+
+  app.get("/rooms/:id", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const detail = roomDetail(db, (req.params as { id: string }).id, userId, nowIso());
+    if (!detail) return reply.code(404).send({ error: "not_found" });
+    return reply.send(detail);
+  });
+
+  app.get("/rooms/:id/tasks", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const roomId = (req.params as { id: string }).id;
+    if (!roleOf(db, roomId, userId)) return reply.code(403).send({ error: "not_member" });
+    return reply.send({ tasks: listTasks(db, roomId) });
+  });
+
+  app.post("/rooms/:id/tasks", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const roomId = (req.params as { id: string }).id;
+    if (!roleOf(db, roomId, userId)) return reply.code(403).send({ error: "not_member" });
+    const body = req.body as Record<string, unknown> | null;
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (text.length === 0 || text.length > ROOM_TASK_MAX) return reply.code(400).send({ error: "invalid_text" });
+    const date = typeof body?.date === "string" ? body.date : "";
+    if (date !== "" && !ROOM_DATE_RX.test(date)) return reply.code(400).send({ error: "invalid_date" });
+    return reply.code(201).send(addTask(db, roomId, userId, text, date, nowIso()));
+  });
+
+  app.post("/rooms/:id/tasks/:tid/toggle", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const { id: roomId, tid } = req.params as { id: string; tid: string };
+    if (!roleOf(db, roomId, userId)) return reply.code(403).send({ error: "not_member" });
+    const task = toggleTask(db, roomId, tid, userId, nowIso());
+    if (!task) return reply.code(404).send({ error: "not_found" });
+    return reply.send(task);
+  });
+
+  app.delete("/rooms/:id/tasks/:tid", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const { id: roomId, tid } = req.params as { id: string; tid: string };
+    const role = roleOf(db, roomId, userId);
+    if (!role) return reply.code(403).send({ error: "not_member" });
+    const exists = db.prepare("SELECT 1 FROM room_tasks WHERE id = ? AND room_id = ?").get(tid, roomId);
+    if (!exists) return reply.code(404).send({ error: "not_found" });
+    if (!deleteTask(db, roomId, tid, userId, role)) {
+      return reply.code(403).send({ error: "forbidden" });
+    }
+    return reply.send({ ok: true });
+  });
+
+  app.delete("/rooms/:id", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const roomId = (req.params as { id: string }).id;
+    if (roleOf(db, roomId, userId) !== "owner") return reply.code(403).send({ error: "forbidden" });
+    deleteRoom(db, roomId);
+    return reply.send({ ok: true });
+  });
+
+  app.post("/rooms/:id/leave", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const roomId = (req.params as { id: string }).id;
+    const role = roleOf(db, roomId, userId);
+    if (!role) return reply.code(404).send({ error: "not_found" });
+    if (role === "owner") return reply.code(400).send({ error: "owner_cant_leave" });
+    leaveRoom(db, roomId, userId);
+    return reply.send({ ok: true });
+  });
+
+  app.patch("/rooms/:id", (req, reply) => {
+    const userId = bearerUserId(req);
+    if (!userId) return reply.code(401).send({ error: "unauthorized" });
+    const roomId = (req.params as { id: string }).id;
+    if (roleOf(db, roomId, userId) !== "owner") return reply.code(403).send({ error: "forbidden" });
+    const goal = (req.body as Record<string, unknown> | null)?.weeklyGoal;
+    if (typeof goal !== "number" || !Number.isInteger(goal) || goal < 1 || goal > 100) {
+      return reply.code(400).send({ error: "invalid_goal" });
+    }
+    setWeeklyGoal(db, roomId, goal);
+    return reply.send({ ok: true });
   });
 
   return app;

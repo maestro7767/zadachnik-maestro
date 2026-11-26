@@ -75,7 +75,7 @@ label>*:not(span){margin-top:6px}
 .btn{width:100%;background:var(--accent);color:#fff;border-radius:14px;padding:14px;font-size:16px;font-weight:700}
 .btn.ghost{background:var(--field);color:var(--fg)}
 .err{background:rgba(255,69,58,.14);color:var(--red);border-radius:12px;padding:10px 12px;margin:8px 0;font-size:14px}
-.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:8px 6px calc(10px + env(safe-area-inset-bottom,0px));z-index:5;max-width:520px;margin:0 auto}
+.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding:8px 6px calc(10px + env(safe-area-inset-bottom,0px));z-index:5;max-width:520px;margin:0 auto}
 .tabs button{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--mute);padding:6px 0;font-weight:600}
 .tabs button.on{color:var(--accent)}
 .tabs button.on svg{background:var(--accent);color:#fff}
@@ -236,7 +236,7 @@ if (SpeechRecognitionApi) {
 let db = { users: {}, data: {}, session: null };
 db = loadAppData(localStorage, KEY);
 
-const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "", carry: null };
+const ui = { tab: "today", anchor: "", calMonth: null, mode: "login", err: "", sheet: null, editProfile: false, pwdMsg: "", confirm: "", cloudAuth: true, busy: false, syncStatus: "ok", migrate: null, pushOn: false, pushMsg: "", carry: null, room: null, rooms: null, roomDetail: null, roomTasks: [], roomMsg: "" };
 
 function todayStr(){ return ymd(new Date()); }
 function nowIso(){ return new Date().toISOString(); }
@@ -265,6 +265,14 @@ function cloudErrorText(e){
     weak_password: "Пароль: от 8 до 128 символов",
     invalid_email: "Проверь email",
     rate_limited: "Слишком много попыток. Подожди 10 минут",
+    invite_not_found: "Комната с таким кодом не найдена",
+    already_member: "Ты уже в этой комнате",
+    owner_cant_leave: "Владелец не может выйти — только удалить комнату",
+    not_member: "Ты не участник этой комнаты",
+    forbidden: "Недостаточно прав",
+    not_found: "Не найдено",
+    invalid_name: "Название комнаты: 2–40 символов",
+    invalid_code: "Проверь код приглашения",
   })[e.code] || "Ошибка сервера: " + e.code;
 }
 
@@ -277,6 +285,7 @@ function cloudLogout(msg){
   if (cloud) api.logout(cloud.refreshToken).catch(() => {});
   if (sync) { sync.stop(); sync = null; }
   cloud = null; saveCloud(null);
+  ui.rooms = null; ui.room = null; ui.roomDetail = null; ui.roomTasks = [];
   if (isCloudSession() || (db.session && db.session.includes("@"))) db.session = null;
   if (msg) ui.err = msg;
   persist(); render();
@@ -376,6 +385,55 @@ async function pushTestFlow(){
   render();
 }
 
+/* --- Вместе: совместные комнаты --- */
+// Комнаты — только облачная фича: данные общие, локальным аккаунтам недоступны.
+async function roomAuthRetry(fn){
+  try { return await fn(cloud.accessToken); }
+  catch (e) {
+    if (e instanceof ApiError && e.status === 401 && cloud) {
+      const s = await api.refresh(cloud.refreshToken);
+      Object.assign(cloud, { accessToken: s.accessToken, refreshToken: s.refreshToken, accessExpiresAt: s.accessExpiresAt });
+      saveCloud(cloud);
+      return await fn(cloud.accessToken);
+    }
+    throw e;
+  }
+}
+
+async function roomsLoad(){
+  if (!isCloudSession()) return;
+  try { const r = await roomAuthRetry(t => api.roomsList(t)); ui.rooms = r.rooms; ui.roomMsg = ""; }
+  catch (e) { ui.rooms = []; ui.roomMsg = cloudErrorText(e); }
+  if (ui.tab === "together" && !ui.room) render();
+}
+
+async function roomRefresh(){
+  if (!cloud || !ui.room) return;
+  try {
+    const d = await roomAuthRetry(t => api.roomGet(t, ui.room));
+    const t = await roomAuthRetry(tok => api.roomTasks(tok, ui.room));
+    ui.roomDetail = d; ui.roomTasks = t.tasks; ui.roomMsg = "";
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+      ui.room = null; ui.roomDetail = null; ui.roomTasks = [];
+      ui.roomMsg = "Комната удалена или ты больше не участник";
+      void roomsLoad();
+    } else ui.roomMsg = cloudErrorText(e);
+  }
+  if (ui.tab === "together") render();
+}
+
+function roomOpen(id){
+  ui.room = id; ui.roomDetail = null; ui.roomTasks = []; ui.confirm = ""; ui.roomMsg = "";
+  render();
+  void roomRefresh();
+}
+
+function roomMemberName(id){
+  const m = (ui.roomDetail ? ui.roomDetail.members : []).find(x => x.id === id);
+  return m ? (m.name || m.email) : "участник";
+}
+
 function migrateHTML(){
   return `<div class="sheet-bg" data-act="migrate-skip"></div><div class="sheet"><div class="grab"></div>
     <div class="title" style="font-size:22px;margin-bottom:8px">Перенести данные в облако?</div>
@@ -420,7 +478,8 @@ function icon(name){
     cal: '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/>',
     study: '<path d="M2 9l10-5 10 5-10 5-10-5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
     sport: '<circle cx="12" cy="12" r="9"/><path d="M4 12h16M12 4v16"/>',
-    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>'
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+    together: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.7a3.5 3.5 0 0 1 0 6.6M17.6 15.2c2 .7 3.4 2.2 4 4.8"/>'
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
 }
@@ -792,6 +851,81 @@ function profileView(){
       <div class="setrow"><span>Удалить аккаунт</span><button class="danger" data-act="delete">${ui.confirm === "delete" ? "Точно, удалить" : "Удалить"}</button></div>
     </div>
     <button class="btn ghost" style="margin:14px 0 6px" data-act="logout">Выйти</button>
+  </div>`;
+}
+
+/* --- Вместе: экраны комнат --- */
+function togetherView(){
+  const head = `<div class="head"><div><div class="title">Вместе</div><div class="sub">Общие задачи с друзьями и семьёй</div></div></div>`;
+  if (!isCloudSession()) {
+    return head + `<div class="wrap"><div class="card" style="text-align:center">
+      <div style="font-size:36px">👥</div>
+      <div style="font-weight:800;font-size:17px;margin:8px 0 4px">Комнаты живут в облаке</div>
+      <div class="mini" style="margin-bottom:14px">Войди по почте, чтобы делить задачи и челленджи с друзьями</div>
+      <button class="btn" data-act="addaccount">Войти по почте</button></div></div>`;
+  }
+  if (ui.room) return roomView();
+  const rooms = ui.rooms;
+  const list = rooms === null
+    ? `<div class="empty">Загружаем комнаты…</div>`
+    : rooms.length === 0
+      ? `<div class="empty">Пока нет комнат — создай свою или вступи по коду друга</div>`
+      : rooms.map(r => `<button class="card" style="display:block;width:100%;text-align:left" data-act="room-open" data-id="${r.id}">
+          <div class="row"><div class="grow"><div style="font-weight:800;font-size:17px">${esc(r.name)}</div>
+          <div class="mini">👥 ${r.members} · челлендж недели: ${r.weekDone}/${r.weeklyGoal}</div></div>
+          ${r.role === "owner" ? `<span class="chip">★ твоя</span>` : ""}</div>
+          <div class="bar"><i style="width:${Math.min(100, Math.round(100 * r.weekDone / Math.max(1, r.weeklyGoal)))}%"></i></div>
+        </button>`).join("");
+  return head + `<div class="wrap">
+    ${ui.roomMsg ? `<div class="err">${esc(ui.roomMsg)}</div>` : ""}
+    ${list}
+    <div class="card"><form id="room-create" autocomplete="off">
+      <label>Новая комната<input name="name" required minlength="2" maxlength="40" placeholder="Семья, друзья, класс…"></label>
+      <button class="btn" type="submit">Создать комнату</button></form></div>
+    <div class="card"><form id="room-join" autocomplete="off">
+      <label>Код приглашения<input name="code" required minlength="4" maxlength="12" placeholder="Например, K7M2PQ" style="text-transform:uppercase"></label>
+      <button class="btn ghost" type="submit">Вступить по коду</button></form></div>
+  </div>`;
+}
+
+function roomView(){
+  const d = ui.roomDetail;
+  const head = `<div class="head"><div class="row" style="min-width:0"><button class="iconbtn" data-act="room-back" aria-label="Назад">‹</button>
+    <div style="min-width:0"><div class="title" style="font-size:26px">${esc(d ? d.name : "Комната")}</div>
+    ${d ? `<div class="sub">Код для друзей: <b>${esc(d.inviteCode)}</b></div>` : ""}</div></div>
+    ${d ? `<button class="pill" data-act="room-copy">Копировать</button>` : ""}</div>`;
+  if (!d) return head + `<div class="wrap"><div class="empty">Загружаем…</div></div>`;
+  const pct = Math.min(100, Math.round(100 * d.weekDone / Math.max(1, d.weeklyGoal)));
+  const tasks = ui.roomTasks.length === 0
+    ? `<div class="empty">Пока пусто — добавьте первую общую задачу</div>`
+    : ui.roomTasks.map(t => `<div class="task ${t.doneAt ? "done" : ""}">
+        <button class="check" data-act="room-toggle" data-id="${t.id}" aria-label="Отметить">${t.doneAt ? "✓" : ""}</button>
+        <div class="grow"><div class="t">${esc(t.text)}</div>
+          <div class="chips">
+            ${t.date ? `<span class="chip">${esc(t.date.slice(8))}.${esc(t.date.slice(5, 7))}</span>` : ""}
+            <span class="chip">${esc(roomMemberName(t.createdBy))}</span>
+            ${t.doneAt ? `<span class="chip" style="color:var(--green)">✓ ${esc(roomMemberName(t.doneBy))}</span>` : ""}
+          </div></div>
+        ${d.myRole === "owner" || t.createdBy === d.myId ? `<button class="x" data-act="room-del" data-id="${t.id}" aria-label="Удалить">✕</button>` : ""}
+      </div>`).join("");
+  return head + `<div class="wrap">
+    ${ui.roomMsg ? `<div class="err">${esc(ui.roomMsg)}</div>` : ""}
+    <div class="card">
+      <div class="row"><div class="grow"><b>Челлендж недели</b><div class="mini">${d.weekDone} из ${d.weeklyGoal} общих задач выполнено</div></div>
+      ${d.myRole === "owner" ? `<div class="stepper"><button data-act="room-goal" data-v="-1" aria-label="Меньше">−</button><span>${d.weeklyGoal}</span><button data-act="room-goal" data-v="1" aria-label="Больше">+</button></div>` : ""}</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+    </div>
+    <div class="card"><div class="mini" style="font-weight:700;padding-bottom:8px">Участники · ${d.members.length}</div>
+      <div class="chips">${d.members.map(m => `<span class="chip">${m.role === "owner" ? "★ " : ""}${esc(m.name || m.email)}</span>`).join("")}</div></div>
+    <div class="card"><form id="room-task" autocomplete="off">
+      <label>Общая задача<input name="text" required maxlength="200" placeholder="Что сделать вместе?"></label>
+      <label>Дата (необязательно)<input name="date" type="date"></label>
+      <button class="btn" type="submit">Добавить</button></form></div>
+    <div class="label">Задачи</div>
+    ${tasks}
+    ${d.myRole === "owner"
+      ? `<button class="btn ghost danger" style="margin-top:14px" data-act="room-delete">${ui.confirm === "roomdel" ? "Точно удалить комнату?" : "Удалить комнату"}</button>`
+      : `<button class="btn ghost" style="margin-top:14px" data-act="room-leave">Выйти из комнаты</button>`}
   </div>`;
 }
 
@@ -1182,12 +1316,13 @@ function sheetHTML(){
 }
 
 function appView(){
-  const tabs = [["today", "today", "Главная"], ["cal", "cal", "Календарь"], ["study", "study", "Учёба"], ["sport", "sport", "Спорт"]];
+  const tabs = [["today", "today", "Главная"], ["cal", "cal", "Календарь"], ["study", "study", "Учёба"], ["sport", "sport", "Спорт"], ["together", "together", "Вместе"]];
   const fresh = ui.lastTab !== ui.tab; ui.lastTab = ui.tab;
   let content;
   if (ui.tab === "today") content = todayView();
   else if (ui.tab === "cal") content = calendarView();
   else if (ui.tab === "study" || ui.tab === "sport") content = ui.tab === "study" ? sectionView("study") + studyHTML() : sectionView("sport") + sportHTML();
+  else if (ui.tab === "together") content = togetherView();
   else content = profileView();
   return `
   <div class="page ${fresh ? "fresh" : ""}">${content}</div>
@@ -1256,6 +1391,43 @@ document.addEventListener("click", e => {
   if (a === "syncnow") { if (sync) void sync.syncNow(); return; }
   if (a === "push-toggle") { if (ui.pushOn) void pushUnsubscribeFlow(); else void pushSubscribeFlow(); return; }
   if (a === "push-test") { void pushTestFlow(); return; }
+  if (a === "room-open") { roomOpen(id); return; }
+  if (a === "room-back") { ui.room = null; ui.roomDetail = null; ui.roomTasks = []; ui.confirm = ""; ui.roomMsg = ""; void roomsLoad(); return render(); }
+  if (a === "room-copy") {
+    const d = ui.roomDetail;
+    if (d && navigator.clipboard) navigator.clipboard.writeText(d.inviteCode).catch(() => {});
+    if (d) ui.roomMsg = "Код скопирован: " + d.inviteCode + " — отправь другу";
+    return render();
+  }
+  if (a === "room-toggle") {
+    void roomAuthRetry(t => api.roomTaskToggle(t, ui.room, id)).then(() => roomRefresh()).catch(e => { ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
+  if (a === "room-del") {
+    void roomAuthRetry(t => api.roomTaskDelete(t, ui.room, id)).then(() => roomRefresh()).catch(e => { ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
+  if (a === "room-goal") {
+    const d = ui.roomDetail;
+    if (!d) return;
+    const g = Math.max(1, Math.min(100, d.weeklyGoal + Number(v)));
+    void roomAuthRetry(t => api.roomSetGoal(t, d.id, g)).then(() => roomRefresh()).catch(e => { ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
+  if (a === "room-leave") {
+    void roomAuthRetry(t => api.roomLeave(t, ui.room))
+      .then(() => { ui.room = null; ui.roomDetail = null; ui.roomTasks = []; void roomsLoad(); render(); })
+      .catch(e => { ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
+  if (a === "room-delete") {
+    if (ui.confirm !== "roomdel") { ui.confirm = "roomdel"; return render(); }
+    ui.confirm = "";
+    void roomAuthRetry(t => api.roomDelete(t, ui.room))
+      .then(() => { ui.room = null; ui.roomDetail = null; ui.roomTasks = []; void roomsLoad(); render(); })
+      .catch(e => { ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
   if (a === "carry-move") { carryMoveTo(addDays(todayStr(), 1)); return; }
   if (a === "carry-skip") { prof().carryDismissed = todayStr(); save(); ui.carry = null; return render(); }
   if (a === "shop-buy") { shopBuy(v); return; }
@@ -1276,7 +1448,7 @@ document.addEventListener("click", e => {
     if (!db.data[login]) { db.users[login] = "social:" + v; db.data[login] = { notes: { study: "", sport: "" }, plans: [] }; }
     db.session = login; ui.tab = "today"; save(); return render();
   }
-  if (a === "tab") { ui.tab = v; ui.sheet = null; ui.notify = false; return render(); }
+  if (a === "tab") { ui.tab = v; ui.sheet = null; ui.notify = false; if (v === "together") { ui.room = null; ui.roomDetail = null; ui.confirm = ""; void roomsLoad(); } return render(); }
   if (a === "openadd") { ui.sheet = { date: v || todayStr(), cat: t.dataset.cat || null }; return render(); }
   if (a === "notify") { ui.notify = true; return render(); }
   if (a === "closenotify") { ui.notify = false; return render(); }
@@ -1364,6 +1536,7 @@ document.addEventListener("click", e => {
   }
   if (a === "switch") {
     db.session = v; ui.tab = "today"; save();
+    ui.rooms = null; ui.room = null; ui.roomDetail = null; ui.roomTasks = [];
     if (sync) { sync.stop(); sync = null; }
     if (isCloudSession()) startSync();
     return render();
@@ -1402,6 +1575,32 @@ document.addEventListener("submit", e => {
   if (f.id === "asst") { asstSend(f.text.value); return render(); }
   if (f.id === "goal") { ui.asst.goal.until = f.until.value; void asstGoalGo(f.goal.value); return; }
   if (f.id === "carryf") { carryMoveTo(f.date.value); return; }
+  if (f.id === "room-create") {
+    const name = f.name.value.trim();
+    if (name.length < 2) return;
+    ui.busy = true;
+    void roomAuthRetry(t => api.roomCreate(t, name))
+      .then(r => { ui.busy = false; ui.rooms = null; void roomsLoad(); roomOpen(r.id); })
+      .catch(e => { ui.busy = false; ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
+  if (f.id === "room-join") {
+    const code = f.code.value.trim();
+    if (!code) return;
+    ui.busy = true;
+    void roomAuthRetry(t => api.roomJoin(t, code))
+      .then(r => { ui.busy = false; ui.rooms = null; void roomsLoad(); roomOpen(r.roomId); })
+      .catch(e => { ui.busy = false; ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
+  if (f.id === "room-task") {
+    const text = f.text.value.trim();
+    if (!text || !ui.room) return;
+    void roomAuthRetry(t => api.roomTaskAdd(t, ui.room, text, f.date.value || ""))
+      .then(() => roomRefresh())
+      .catch(e => { ui.roomMsg = cloudErrorText(e); render(); });
+    return;
+  }
   if (f.id === "wk") { addSet(f); return; }
   if (["subj", "asm", "att", "dl", "les", "card"].includes(f.id) && !ui.studyMsg) ui.studyForm = null;
   if (f.id === "subj") { studyOf().subjects.push({ id: uid(), name: f.name.value.trim(), failedAttempts: 0, updatedAt: nowIso(), deletedAt: null }); save(); return render(); }

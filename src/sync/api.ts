@@ -55,6 +55,46 @@ export interface SyncApi {
   pushUnsubscribe(accessToken: string, endpoint: string): Promise<void>;
   pushTest(accessToken: string): Promise<{ sent: number; failed: number; removed: number }>;
   aiDecompose(accessToken: string, body: { goal: string; startDate: string; endDate: string; load: Record<string, number> }): Promise<{ steps: { date: string; text: string }[] }>;
+  roomsList(accessToken: string): Promise<{ rooms: RoomListItemDto[] }>;
+  roomCreate(accessToken: string, name: string): Promise<RoomListItemDto & { inviteCode: string }>;
+  roomJoin(accessToken: string, code: string): Promise<{ roomId: string }>;
+  roomGet(accessToken: string, id: string): Promise<RoomDetailDto>;
+  roomTasks(accessToken: string, id: string): Promise<{ tasks: RoomTaskDto[] }>;
+  roomTaskAdd(accessToken: string, id: string, text: string, date?: string): Promise<RoomTaskDto>;
+  roomTaskToggle(accessToken: string, id: string, taskId: string): Promise<RoomTaskDto>;
+  roomTaskDelete(accessToken: string, id: string, taskId: string): Promise<void>;
+  roomDelete(accessToken: string, id: string): Promise<void>;
+  roomLeave(accessToken: string, id: string): Promise<void>;
+  roomSetGoal(accessToken: string, id: string, weeklyGoal: number): Promise<void>;
+}
+
+export interface RoomListItemDto {
+  readonly id: string;
+  readonly name: string;
+  readonly role: "owner" | "member";
+  readonly members: number;
+  readonly weeklyGoal: number;
+  readonly weekDone: number;
+}
+
+export interface RoomDetailDto {
+  readonly id: string;
+  readonly name: string;
+  readonly inviteCode: string;
+  readonly myRole: "owner" | "member";
+  readonly myId: string;
+  readonly weeklyGoal: number;
+  readonly weekDone: number;
+  readonly members: { id: string; name: string; email: string; role: string }[];
+}
+
+export interface RoomTaskDto {
+  readonly id: string;
+  readonly text: string;
+  readonly date: string;
+  readonly createdBy: string;
+  readonly doneBy: string | null;
+  readonly doneAt: string | null;
 }
 
 export function createApi(baseUrl: string, fetchFn: FetchLike): SyncApi {
@@ -94,5 +134,24 @@ export function createApi(baseUrl: string, fetchFn: FetchLike): SyncApi {
     },
     pushTest: (token) => call("POST", "/push/test", { token }),
     aiDecompose: (token, body) => call("POST", "/ai/decompose", { token, body }),
+    roomsList: (token) => call("GET", "/rooms", { token }),
+    roomCreate: (token, name) => call("POST", "/rooms", { token, body: { name } }),
+    roomJoin: (token, code) => call("POST", "/rooms/join", { token, body: { code } }),
+    roomGet: (token, id) => call("GET", `/rooms/${encodeURIComponent(id)}`, { token }),
+    roomTasks: (token, id) => call("GET", `/rooms/${encodeURIComponent(id)}/tasks`, { token }),
+    roomTaskAdd: (token, id, text, date) => call("POST", `/rooms/${encodeURIComponent(id)}/tasks`, { token, body: { text, ...(date ? { date } : {}) } }),
+    roomTaskToggle: (token, id, taskId) => call("POST", `/rooms/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}/toggle`, { token }),
+    roomTaskDelete: async (token, id, taskId) => {
+      await call("DELETE", `/rooms/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}`, { token });
+    },
+    roomDelete: async (token, id) => {
+      await call("DELETE", `/rooms/${encodeURIComponent(id)}`, { token });
+    },
+    roomLeave: async (token, id) => {
+      await call("POST", `/rooms/${encodeURIComponent(id)}/leave`, { token });
+    },
+    roomSetGoal: async (token, id, weeklyGoal) => {
+      await call("PATCH", `/rooms/${encodeURIComponent(id)}`, { token, body: { weeklyGoal } });
+    },
   };
 }

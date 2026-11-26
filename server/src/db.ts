@@ -51,6 +51,32 @@ export function openDb(path = ":memory:"): Db {
       fired_at TEXT NOT NULL,
       PRIMARY KEY (user_id, plan_id)
     );
+    CREATE TABLE IF NOT EXISTS rooms (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      invite_code TEXT NOT NULL UNIQUE,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      weekly_goal INTEGER NOT NULL DEFAULT 10,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS room_members (
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('owner','member')),
+      joined_at TEXT NOT NULL,
+      PRIMARY KEY (room_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS room_tasks (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      date TEXT NOT NULL DEFAULT '',
+      created_by TEXT NOT NULL REFERENCES users(id),
+      done_by TEXT,
+      done_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_room_tasks ON room_tasks(room_id);
   `);
   // Миграция: колонка name появилась после первых баз.
   const cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];

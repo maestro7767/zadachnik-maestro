@@ -57,6 +57,31 @@ function fakeApi(): FakeApi {
     async aiDecompose() {
       throw new Error("not used");
     },
+    async roomsList() {
+      return { rooms: [] };
+    },
+    async roomCreate() {
+      throw new Error("not used");
+    },
+    async roomJoin() {
+      throw new Error("not used");
+    },
+    async roomGet() {
+      throw new Error("not used");
+    },
+    async roomTasks() {
+      return { tasks: [] };
+    },
+    async roomTaskAdd() {
+      throw new Error("not used");
+    },
+    async roomTaskToggle() {
+      throw new Error("not used");
+    },
+    async roomTaskDelete() {},
+    async roomDelete() {},
+    async roomLeave() {},
+    async roomSetGoal() {},
     async pull(_token: string, since: string | null) {
       api.pulled.push(since);
       return { now: NOW, changes: api.remoteChanges as never };
