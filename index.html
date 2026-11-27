@@ -508,7 +508,7 @@ function authView(){
     ${ui.err ? `<div class="err">${esc(ui.err)}</div>` : ""}
     ${cloudForm}
     <button class="btn ghost" style="margin-top:10px" data-act="mode">${reg ? "У меня уже есть аккаунт" : "Создать аккаунт"}</button>
-    <button class="btn ghost" data-act="toggleauth">${ui.cloudAuth ? "Локальный вход (без облака)" : "Войти по почте (с облаком)"}</button>
+    <button class="btn ghost" style="margin-top:8px" data-act="toggleauth">${ui.cloudAuth ? "Локальный вход (без облака)" : "Войти по почте (с облаком)"}</button>
   </div>`;
 }
 
